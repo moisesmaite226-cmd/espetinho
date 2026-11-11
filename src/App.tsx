@@ -15,6 +15,7 @@ import {
   CartItem
 } from './types';
 import { AppStorage } from './services/storage';
+import { AppApi } from './services/api';
 import { Navbar, ActiveTab } from './components/Navbar';
 import { PDVView } from './components/PDVView';
 import { CadernetaFiadoView } from './components/CadernetaFiadoView';
@@ -42,13 +43,23 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState<string>('');
 
   // Initial data load
-  const reloadAllData = () => {
+  const reloadAllData = async () => {
+    // 1. Initial fast display from storage
     setProducts(AppStorage.getProducts());
     setCustomers(AppStorage.getCustomers());
     setSales(AppStorage.getSales());
     setDebtTransactions(AppStorage.getDebtTransactions());
     setCashFlow(AppStorage.getCashFlow());
     setSettings(AppStorage.getSettings());
+
+    // 2. Fetch fresh data from Cloud SQL PostgreSQL
+    const fresh = await AppApi.loadAllData();
+    if (fresh.products?.length) setProducts(fresh.products);
+    if (fresh.customers?.length) setCustomers(fresh.customers);
+    if (fresh.sales) setSales(fresh.sales);
+    if (fresh.debtTransactions?.length) setDebtTransactions(fresh.debtTransactions);
+    if (fresh.cashFlow?.length) setCashFlow(fresh.cashFlow);
+    if (fresh.settings) setSettings(fresh.settings);
   };
 
   useEffect(() => {
@@ -160,6 +171,9 @@ export default function App() {
         AppStorage.saveDebtTransactions(updatedDebtTx);
       }
     }
+
+    // Sync to PostgreSQL backend
+    AppApi.completeSale(sale, cart, method, customerId, notes);
   };
 
   // 2. Quick add customer from PDV
@@ -181,6 +195,7 @@ export default function App() {
     const updated = [newCustomer, ...customers];
     setCustomers(updated);
     AppStorage.saveCustomers(updated);
+    AppApi.saveCustomer(newCustomer);
     return newCustomer;
   };
 
@@ -206,6 +221,7 @@ export default function App() {
     }
     setCustomers(updated);
     AppStorage.saveCustomers(updated);
+    AppApi.saveCustomer(customerData);
   };
 
   // 4. Receive debt payment (Quitar ou amortizar fiado)
@@ -258,6 +274,9 @@ export default function App() {
     const updatedCashFlow = [cashEntry, ...cashFlow];
     setCashFlow(updatedCashFlow);
     AppStorage.saveCashFlow(updatedCashFlow);
+
+    // Sync to PostgreSQL
+    AppApi.receiveDebtPayment(customerId, amount, method, notes);
   };
 
   // 5. Add manual debt to customer
@@ -292,6 +311,9 @@ export default function App() {
     const updatedDebtTx = [debtTx, ...debtTransactions];
     setDebtTransactions(updatedDebtTx);
     AppStorage.saveDebtTransactions(updatedDebtTx);
+
+    // Sync to PostgreSQL
+    AppApi.addManualDebt(customerId, amount, description);
   };
 
   // 6. Add cash flow entry
@@ -304,6 +326,9 @@ export default function App() {
     const updated = [newEntry, ...cashFlow];
     setCashFlow(updated);
     AppStorage.saveCashFlow(updated);
+
+    // Sync to PostgreSQL
+    AppApi.addCashFlowEntry(entry);
   };
 
   // 7. Save product
@@ -317,6 +342,9 @@ export default function App() {
     }
     setProducts(updated);
     AppStorage.saveProducts(updated);
+
+    // Sync to PostgreSQL
+    AppApi.saveProduct(prod);
   };
 
   // 8. Quick Replenish
@@ -326,12 +354,18 @@ export default function App() {
     );
     setProducts(updated);
     AppStorage.saveProducts(updated);
+
+    // Sync to PostgreSQL
+    AppApi.replenishProduct(productId, quantityToAdd);
   };
 
   // 9. Save Settings
   const handleSaveSettings = (newSettings: AppSettings) => {
     setSettings(newSettings);
     AppStorage.saveSettings(newSettings);
+
+    // Sync to PostgreSQL
+    AppApi.saveSettings(newSettings);
   };
 
   return (
