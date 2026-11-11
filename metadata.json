@@ -1,0 +1,6 @@
+{
+  "name": "Espeto & Gelada Gestor",
+  "description": "Sistema completo para espetinho e bebidas com PDV rápido, caderneta de fiado com cobrança via WhatsApp, fluxo de caixa e controle de estoque.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
