@@ -20,7 +20,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 15,
     unit: 'espeto',
     portionSizeDescription: 'Espeto de ~150g assado na brasa',
-    imageUrl: '/src/assets/images/espetinho_carne_prato_1794322140467.jpg',
+    imageUrl: '/images/espetinho_carne_prato_1794322140467.jpg',
     active: true,
   },
   {
@@ -33,7 +33,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 10,
     unit: 'espeto',
     portionSizeDescription: 'Espeto de ~160g suculento',
-    imageUrl: '/src/assets/images/hero_espetinhos_brasa_1794319489989.jpg',
+    imageUrl: '/images/hero_espetinhos_brasa_1794319489989.jpg',
     active: true,
   },
   {
@@ -46,7 +46,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 10,
     unit: 'espeto',
     portionSizeDescription: 'Espeto de ~140g com queijo derretido',
-    imageUrl: '/src/assets/images/espeto_kafta_recheada_1794323046595.jpg',
+    imageUrl: '/images/espeto_kafta_recheada_1794323046595.jpg',
     active: true,
   },
   {
@@ -59,7 +59,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 8,
     unit: 'espeto',
     portionSizeDescription: 'Espeto de ~150g marinado no alho',
-    imageUrl: '/src/assets/images/espeto_coracao_churrasco_1794323047573.jpg',
+    imageUrl: '/images/espeto_coracao_churrasco_1794323047573.jpg',
     active: true,
   },
   {
@@ -72,7 +72,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 10,
     unit: 'espeto',
     portionSizeDescription: 'Espeto de ~120g douradinho com melaço',
-    imageUrl: '/src/assets/images/espeto_queijo_coalho_1794323045480.jpg',
+    imageUrl: '/images/espeto_queijo_coalho_1794323045480.jpg',
     active: true,
   },
   {
@@ -85,7 +85,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 12,
     unit: 'espeto',
     portionSizeDescription: 'Espeto de ~140g defumada na brasa',
-    imageUrl: '/src/assets/images/espeto_linguica_brasa_1794323048773.jpg',
+    imageUrl: '/images/espeto_linguica_brasa_1794323048773.jpg',
     active: true,
   },
 
@@ -100,7 +100,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 6,
     unit: 'porção',
     portionSizeDescription: 'Inteira ~700g (serve até 4) ou Meia ~350g',
-    imageUrl: '/src/assets/images/porcao_mandioca_frita_1794322138008.jpg',
+    imageUrl: '/images/porcao_mandioca_frita_1794322138008.jpg',
     variants: [
       {
         id: 'meia',
@@ -131,7 +131,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 5,
     unit: 'porção',
     portionSizeDescription: 'Inteira ~600g (serve até 4) ou Meia ~300g',
-    imageUrl: '/src/assets/images/porcao_torresmo_panceta_1794322138850.jpg',
+    imageUrl: '/images/porcao_torresmo_panceta_1794322138850.jpg',
     variants: [
       {
         id: 'meia',
@@ -162,7 +162,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 8,
     unit: 'porção',
     portionSizeDescription: 'Inteira ~600g (serve até 4) ou Meia ~300g',
-    imageUrl: '/src/assets/images/porcao_batata_bacon_1794322139366.jpg',
+    imageUrl: '/images/porcao_batata_bacon_1794322139366.jpg',
     variants: [
       {
         id: 'meia',
@@ -193,7 +193,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 15,
     unit: 'porção',
     portionSizeDescription: 'Acompanhamento tradicional de boteco',
-    imageUrl: '/src/assets/images/farofa_vinagrete_porcao_1794323048527.jpg',
+    imageUrl: '/images/farofa_vinagrete_porcao_1794323048527.jpg',
     variants: [
       {
         id: 'individual',
@@ -226,7 +226,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 24,
     unit: 'lata',
     portionSizeDescription: 'Lata 350ml trincando de gelada',
-    imageUrl: '/src/assets/images/cervejas_gelo_balde_1794319484786.jpg',
+    imageUrl: '/images/cervejas_gelo_balde_1794319484786.jpg',
     active: true,
   },
   {
@@ -239,7 +239,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 16,
     unit: 'garrafa',
     portionSizeDescription: 'Long Neck 330ml gelada',
-    imageUrl: '/src/assets/images/cervejas_gelo_balde_1794319484786.jpg',
+    imageUrl: '/images/cervejas_gelo_balde_1794319484786.jpg',
     active: true,
   },
   {
@@ -252,7 +252,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 15,
     unit: 'garrafa',
     portionSizeDescription: 'Garrafa 600ml trincando no porta-garrafa',
-    imageUrl: '/src/assets/images/cerveja_original_garrafa_1794323066718.jpg',
+    imageUrl: '/images/cerveja_original_garrafa_1794323066718.jpg',
     variants: [
       {
         id: 'lata',
@@ -283,7 +283,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 12,
     unit: 'lata',
     portionSizeDescription: 'Lata 350ml bem gelada no gelo',
-    imageUrl: '/src/assets/images/refrigerante_lata_gelada_1794323080556.jpg',
+    imageUrl: '/images/refrigerante_lata_gelada_1794323080556.jpg',
     active: true,
   },
   {
@@ -296,7 +296,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 15,
     unit: 'garrafa',
     portionSizeDescription: 'Garrafa 500ml com copo e limão',
-    imageUrl: '/src/assets/images/garrafa_agua_mineral_1794323067274.jpg',
+    imageUrl: '/images/garrafa_agua_mineral_1794323067274.jpg',
     active: true,
   },
 
@@ -311,7 +311,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 10,
     unit: 'pote',
     portionSizeDescription: 'Potinho 60ml ou Pote Grande 150ml',
-    imageUrl: '/src/assets/images/molho_chimichurri_pote_1794567887170.jpg',
+    imageUrl: '/images/molho_chimichurri_pote_1794567887170.jpg',
     variants: [
       {
         id: 'potinho_60',
@@ -342,7 +342,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 12,
     unit: 'pote',
     portionSizeDescription: 'Potinho 60ml ou Pote Grande 150ml',
-    imageUrl: '/src/assets/images/molho_alho_cremoso_1794567887054.jpg',
+    imageUrl: '/images/molho_alho_cremoso_1794567887054.jpg',
     variants: [
       {
         id: 'potinho_60',
@@ -373,7 +373,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 10,
     unit: 'pote',
     portionSizeDescription: 'Potinho 60ml ou Pote Grande 150ml',
-    imageUrl: '/src/assets/images/molho_barbecue_caseiro_1794567888265.jpg',
+    imageUrl: '/images/molho_barbecue_caseiro_1794567888265.jpg',
     variants: [
       {
         id: 'potinho_60',
@@ -404,7 +404,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     minStock: 10,
     unit: 'pote',
     portionSizeDescription: 'Potinho 80ml ou Cumbuca 200ml',
-    imageUrl: '/src/assets/images/molho_vinagrete_classico_1794567888404.jpg',
+    imageUrl: '/images/molho_vinagrete_classico_1794567888404.jpg',
     variants: [
       {
         id: 'potinho_80',

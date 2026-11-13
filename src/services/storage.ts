@@ -24,6 +24,18 @@ const STORAGE_KEYS = {
   SETTINGS: 'espeto_settings_v4',
 };
 
+export function normalizeImageUrl(url?: string): string | undefined {
+  if (!url) return url;
+  return url.replace('/src/assets/images/', '/images/');
+}
+
+function normalizeProducts(products: Product[]): Product[] {
+  return products.map((p) => ({
+    ...p,
+    imageUrl: normalizeImageUrl(p.imageUrl),
+  }));
+}
+
 function safeGet<T>(key: string, fallback: T): T {
   try {
     const item = localStorage.getItem(key);
@@ -45,11 +57,11 @@ function safeSet<T>(key: string, value: T): void {
 
 export class AppStorage {
   static getProducts(): Product[] {
-    return safeGet<Product[]>(STORAGE_KEYS.PRODUCTS, INITIAL_PRODUCTS);
+    return normalizeProducts(safeGet<Product[]>(STORAGE_KEYS.PRODUCTS, INITIAL_PRODUCTS));
   }
 
   static saveProducts(products: Product[]): void {
-    safeSet(STORAGE_KEYS.PRODUCTS, products);
+    safeSet(STORAGE_KEYS.PRODUCTS, normalizeProducts(products));
   }
 
   static getCustomers(): Customer[] {

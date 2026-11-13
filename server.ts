@@ -71,6 +71,17 @@ async function seedDatabaseIfEmpty() {
       }
     }
 
+    // Migrate any legacy /src/assets/images/ paths in PostgreSQL to /images/
+    const allProds = await db.select().from(products);
+    for (const prod of allProds) {
+      if (prod.imageUrl && prod.imageUrl.startsWith('/src/assets/images/')) {
+        await db
+          .update(products)
+          .set({ imageUrl: prod.imageUrl.replace('/src/assets/images/', '/images/') })
+          .where(eq(products.id, prod.id));
+      }
+    }
+
     const existingCustomers = await db.select().from(customers).limit(1);
     if (existingCustomers.length === 0) {
       console.log('Seeding initial customers into PostgreSQL...');
@@ -162,9 +173,10 @@ app.get('/api/bootstrap', async (_req: Request, res: Response) => {
       db.select().from(settings).limit(1),
     ]);
 
-    // Parse JSON variants for products
+    // Parse JSON variants for products and normalize legacy image paths
     const parsedProducts = dbProducts.map((p) => ({
       ...p,
+      imageUrl: p.imageUrl?.replace('/src/assets/images/', '/images/'),
       variants: typeof p.variants === 'string' ? JSON.parse(p.variants) : p.variants,
     }));
 
@@ -190,6 +202,7 @@ app.get('/api/products', async (_req: Request, res: Response) => {
     const list = await db.select().from(products);
     const parsed = list.map((p) => ({
       ...p,
+      imageUrl: p.imageUrl?.replace('/src/assets/images/', '/images/'),
       variants: typeof p.variants === 'string' ? JSON.parse(p.variants) : p.variants,
     }));
     res.json(parsed);

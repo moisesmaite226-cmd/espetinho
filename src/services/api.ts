@@ -8,7 +8,7 @@ import {
   PaymentMethod,
   CartItem
 } from '../types';
-import { AppStorage } from './storage';
+import { AppStorage, normalizeImageUrl } from './storage';
 
 export class AppApi {
   // Bootstrap: loads all state from PostgreSQL database (with LocalStorage fallback)
@@ -22,10 +22,17 @@ export class AppApi {
   }> {
     try {
       const res = await fetch('/api/bootstrap');
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
-        // Also sync to local storage for offline resilience
-        if (data.products?.length) AppStorage.saveProducts(data.products);
+        // Normalize any legacy image paths and sync to local storage for offline resilience
+        if (data.products?.length) {
+          data.products = data.products.map((p: Product) => ({
+            ...p,
+            imageUrl: normalizeImageUrl(p.imageUrl),
+          }));
+          AppStorage.saveProducts(data.products);
+        }
         if (data.customers?.length) AppStorage.saveCustomers(data.customers);
         if (data.sales) AppStorage.saveSales(data.sales);
         if (data.debtTransactions?.length) AppStorage.saveDebtTransactions(data.debtTransactions);
