@@ -70,6 +70,8 @@ export interface Sale {
   items: SaleItem[];
   total: number;
   paymentMethod: PaymentMethod;
+  cashReceived?: number;
+  changeGiven?: number;
   customerId?: string;
   customerName?: string;
   notes?: string;

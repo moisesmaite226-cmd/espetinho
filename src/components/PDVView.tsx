@@ -229,12 +229,20 @@ export const PDVView: React.FC<PDVViewProps> = ({
   const handleOpenCheckout = () => {
     if (cart.length === 0) return;
     setIsCheckoutOpen(true);
-    setCashGiven(cartTotal.toString());
+    setCashGiven('');
+  };
+
+  const parseAmountInput = (raw: string): number => {
+    const cleaned = raw.replace(/[^\d.,]/g, '').replace(',', '.');
+    const parsed = parseFloat(cleaned);
+    return Number.isFinite(parsed) ? parsed : 0;
   };
 
   // Cash change calculation
-  const cashGivenNumber = parseFloat(cashGiven.replace(',', '.')) || 0;
-  const changeDue = Math.max(0, cashGivenNumber - cartTotal);
+  const hasCashInput = cashGiven.trim().length > 0;
+  const cashGivenNumber = hasCashInput ? parseAmountInput(cashGiven) : cartTotal;
+  const missingCash = hasCashInput && cashGivenNumber < cartTotal ? cartTotal - cashGivenNumber : 0;
+  const changeDue = hasCashInput && cashGivenNumber > cartTotal ? cashGivenNumber - cartTotal : 0;
 
   // Selected customer for fiado
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId);
@@ -245,6 +253,10 @@ export const PDVView: React.FC<PDVViewProps> = ({
   const handleConfirmSale = () => {
     if (selectedMethod === 'fiado' && !selectedCustomerId) {
       alert('Por favor, selecione o cliente para marcar no fiado!');
+      return;
+    }
+
+    if (selectedMethod === 'dinheiro' && missingCash > 0) {
       return;
     }
 
@@ -264,6 +276,8 @@ export const PDVView: React.FC<PDVViewProps> = ({
       items: saleItems,
       total: cartTotal,
       paymentMethod: selectedMethod,
+      cashReceived: selectedMethod === 'dinheiro' ? cashGivenNumber : undefined,
+      changeGiven: selectedMethod === 'dinheiro' ? changeDue : undefined,
       customerId: selectedMethod === 'fiado' ? selectedCustomerId : undefined,
       customerName: selectedMethod === 'fiado' && selectedCustomer
         ? (selectedCustomer.nickname ? `${selectedCustomer.name} (${selectedCustomer.nickname})` : selectedCustomer.name)
@@ -275,6 +289,7 @@ export const PDVView: React.FC<PDVViewProps> = ({
     setCompletedSale(sale);
     setCart([]);
     setIsCheckoutOpen(false);
+    setCashGiven('');
     setSelectedCustomerId('');
     setSaleNotes('');
   };
@@ -903,44 +918,94 @@ export const PDVView: React.FC<PDVViewProps> = ({
             {/* Contextual Options per Payment Method */}
             {selectedMethod === 'dinheiro' && (
               <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-3.5 space-y-3">
-                <label className="text-xs font-medium text-neutral-300 block">
-                  Valor recebido em dinheiro:
-                </label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-xs font-mono">
-                      R$
-                    </span>
-                    <input
-                      type="number"
-                      step="0.50"
-                      value={cashGiven}
-                      onChange={(e) => setCashGiven(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 text-sm bg-neutral-900 border border-neutral-700 rounded-lg text-white font-mono"
-                    />
-                  </div>
-                  <div className="flex gap-1.5">
-                    {[20, 50, 100].map((val) => (
-                      <button
-                        key={val}
-                        type="button"
-                        onClick={() => setCashGiven(val.toString())}
-                        className="px-2.5 py-1 text-xs font-mono bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded border border-neutral-700"
-                      >
-                        R${val}
-                      </button>
-                    ))}
-                  </div>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-neutral-300">
+                    Quanto o cliente pagou em dinheiro?
+                  </label>
+                  {hasCashInput && (
+                    <button
+                      type="button"
+                      onClick={() => setCashGiven('')}
+                      className="text-[11px] text-neutral-400 hover:text-white underline"
+                    >
+                      Limpar
+                    </button>
+                  )}
                 </div>
 
-                <div className="flex items-center justify-between pt-2 border-t border-neutral-800/80">
-                  <span className="text-xs text-neutral-400">Troco a devolver:</span>
-                  <span className={`text-base font-bold font-mono tabular-nums ${
-                    changeDue > 0 ? 'text-emerald-400' : 'text-neutral-500'
-                  }`}>
-                    {formatCurrency(changeDue)}
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400 text-sm font-mono font-bold">
+                    R$
                   </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    autoFocus
+                    placeholder={`Ex: ${cartTotal.toFixed(2).replace('.', ',')} (Valor Exato)`}
+                    value={cashGiven}
+                    onChange={(e) => setCashGiven(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    className="w-full pl-11 pr-3 py-2.5 text-lg bg-neutral-900 border border-neutral-700 focus:border-amber-500 focus:outline-none rounded-xl text-white font-mono font-bold tabular-nums placeholder:text-neutral-600 placeholder:text-xs placeholder:font-normal"
+                  />
                 </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setCashGiven(cartTotal.toFixed(2).replace('.', ','))}
+                    className="px-2.5 py-1.5 text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-amber-300 rounded-lg border border-neutral-700 whitespace-nowrap"
+                  >
+                    Exato ({formatCurrency(cartTotal)})
+                  </button>
+                  {[10, 20, 50, 100, 200].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setCashGiven(val.toString())}
+                      className="px-2.5 py-1.5 text-xs font-mono font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg border border-neutral-700 whitespace-nowrap"
+                    >
+                      R$ {val}
+                    </button>
+                  ))}
+                </div>
+
+                {missingCash > 0 ? (
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-rose-950/40 border border-rose-800/70">
+                    <div>
+                      <span className="text-xs font-bold text-rose-300 block">Valor insuficiente</span>
+                      <span className="text-[11px] text-rose-200/70">
+                        Total da conta é {formatCurrency(cartTotal)}
+                      </span>
+                    </div>
+                    <span className="text-lg font-bold font-mono tabular-nums text-rose-400">
+                      Falta {formatCurrency(missingCash)}
+                    </span>
+                  </div>
+                ) : (
+                  <div className={`flex items-center justify-between p-3 rounded-xl border ${
+                    changeDue > 0
+                      ? 'bg-emerald-950/40 border-emerald-700/70'
+                      : 'bg-neutral-900 border-neutral-800'
+                  }`}>
+                    <div>
+                      <span className={`text-xs font-bold block ${
+                        changeDue > 0 ? 'text-emerald-300' : 'text-neutral-300'
+                      }`}>
+                        Troco a devolver:
+                      </span>
+                      <span className="text-[11px] text-neutral-400">
+                        {!hasCashInput || changeDue === 0
+                          ? 'Sem troco (valor exato)'
+                          : `Pago ${formatCurrency(cashGivenNumber)} − Conta ${formatCurrency(cartTotal)}`}
+                      </span>
+                    </div>
+                    <span className={`text-2xl font-bold font-mono tabular-nums ${
+                      changeDue > 0 ? 'text-emerald-400' : 'text-neutral-400'
+                    }`}>
+                      {formatCurrency(changeDue)}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1068,8 +1133,13 @@ export const PDVView: React.FC<PDVViewProps> = ({
               </button>
               <button
                 type="button"
+                disabled={selectedMethod === 'dinheiro' && missingCash > 0}
                 onClick={handleConfirmSale}
-                className="px-5 py-2.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-neutral-950 rounded-xl transition-colors shadow-md"
+                className={`px-5 py-2.5 text-xs font-bold rounded-xl transition-colors shadow-md ${
+                  selectedMethod === 'dinheiro' && missingCash > 0
+                    ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                    : 'bg-amber-500 hover:bg-amber-400 text-neutral-950'
+                }`}
               >
                 {selectedMethod === 'fiado' ? 'Confirmar e Anotar no Fiado' : 'Confirmar e Registrar Venda'}
               </button>
@@ -1175,14 +1245,26 @@ export const PDVView: React.FC<PDVViewProps> = ({
               </div>
             </div>
 
-            <div className="bg-neutral-950 p-3 rounded-xl border border-neutral-800 text-xs font-mono space-y-1">
+            <div className="bg-neutral-950 p-3 rounded-xl border border-neutral-800 text-xs font-mono space-y-1.5">
               <div className="flex justify-between text-neutral-400">
                 <span>Total da Venda:</span>
                 <span className="text-amber-400 font-bold">{formatCurrency(completedSale.total)}</span>
               </div>
-              <div className="flex justify-between text-neutral-500 text-[11px]">
+              {completedSale.paymentMethod === 'dinheiro' && completedSale.cashReceived !== undefined && (
+                <>
+                  <div className="flex justify-between text-neutral-400">
+                    <span>Valor Pago em Dinheiro:</span>
+                    <span className="text-white">{formatCurrency(completedSale.cashReceived)}</span>
+                  </div>
+                  <div className="flex justify-between text-emerald-400 font-bold pt-1 border-t border-neutral-800">
+                    <span>Troco Devolvido:</span>
+                    <span>{formatCurrency(completedSale.changeGiven || 0)}</span>
+                  </div>
+                </>
+              )}
+              <div className="flex justify-between text-neutral-500 text-[11px] pt-1 border-t border-neutral-900">
                 <span>Itens:</span>
-                <span>{completedSale.items.map((i) => `${i.quantity}x ${i.name}`).join(', ')}</span>
+                <span className="text-right">{completedSale.items.map((i) => `${i.quantity}x ${i.name}`).join(', ')}</span>
               </div>
             </div>
 

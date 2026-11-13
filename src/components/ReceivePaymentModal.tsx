@@ -21,15 +21,29 @@ export const ReceivePaymentModal: React.FC<ReceivePaymentModalProps> = ({
 }) => {
   const [amount, setAmount] = useState<string>(customer.totalDebt.toString());
   const [method, setMethod] = useState<PaymentMethod>('pix');
+  const [cashTendered, setCashTendered] = useState<string>('');
   const [notes, setNotes] = useState('');
 
-  const numAmount = parseFloat(amount.replace(',', '.')) || 0;
+  const parseAmountInput = (raw: string): number => {
+    const cleaned = raw.replace(/[^\d.,]/g, '').replace(',', '.');
+    const parsed = parseFloat(cleaned);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const numAmount = parseAmountInput(amount);
   const remainingDebt = Math.max(0, customer.totalDebt - numAmount);
+
+  const hasCashTendered = cashTendered.trim().length > 0;
+  const numCashTendered = hasCashTendered ? parseAmountInput(cashTendered) : numAmount;
+  const missingCash = method === 'dinheiro' && hasCashTendered && numCashTendered < numAmount ? numAmount - numCashTendered : 0;
+  const changeDue = method === 'dinheiro' && hasCashTendered && numCashTendered > numAmount ? numCashTendered - numAmount : 0;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (numAmount <= 0) {
-      alert('Informe um valor válido maior que zero!');
+      return;
+    }
+    if (missingCash > 0) {
       return;
     }
     if (numAmount > customer.totalDebt) {
@@ -145,6 +159,72 @@ export const ReceivePaymentModal: React.FC<ReceivePaymentModalProps> = ({
             </div>
           </div>
 
+          {/* Cash Change Calculator when Dinheiro */}
+          {method === 'dinheiro' && (
+            <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-neutral-300">
+                  Quanto o cliente entregou em dinheiro?
+                </label>
+                {hasCashTendered && (
+                  <button
+                    type="button"
+                    onClick={() => setCashTendered('')}
+                    className="text-[11px] text-neutral-400 hover:text-white underline"
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
+
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 font-mono text-xs font-bold">
+                  R$
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder={`Ex: 100,00 (ou deixe vazio se exato)`}
+                  value={cashTendered}
+                  onChange={(e) => setCashTendered(e.target.value)}
+                  onFocus={(e) => e.target.select()}
+                  className="w-full pl-9 pr-3 py-2 text-sm font-mono font-bold bg-neutral-900 border border-neutral-700 rounded-lg text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {[20, 50, 100, 200].map((val) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setCashTendered(val.toString())}
+                    className="px-2 py-1 text-[11px] font-mono font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded border border-neutral-700"
+                  >
+                    R$ {val}
+                  </button>
+                ))}
+              </div>
+
+              {missingCash > 0 ? (
+                <div className="flex items-center justify-between pt-2 border-t border-neutral-800 text-xs">
+                  <span className="text-rose-300 font-semibold">Valor entregue menor que a baixa:</span>
+                  <span className="font-mono font-bold text-rose-400 tabular-nums">
+                    Falta {formatCurrency(missingCash)}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between pt-2 border-t border-neutral-800 text-xs">
+                  <span className="text-neutral-300 font-semibold">Troco a devolver:</span>
+                  <span className={`text-base font-mono font-bold tabular-nums ${
+                    changeDue > 0 ? 'text-emerald-400' : 'text-neutral-400'
+                  }`}>
+                    {formatCurrency(changeDue)}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* New balance preview */}
           <div className="p-3 bg-neutral-950/70 rounded-xl border border-neutral-800 text-xs flex justify-between items-center">
             <span className="text-neutral-400">Saldo Restante na Caderneta:</span>
@@ -178,7 +258,12 @@ export const ReceivePaymentModal: React.FC<ReceivePaymentModalProps> = ({
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-neutral-950 rounded-xl shadow-md flex items-center gap-1.5"
+              disabled={missingCash > 0 || numAmount <= 0}
+              className={`px-5 py-2 text-xs font-bold rounded-xl shadow-md flex items-center gap-1.5 ${
+                missingCash > 0 || numAmount <= 0
+                  ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                  : 'bg-amber-500 hover:bg-amber-400 text-neutral-950'
+              }`}
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>Confirmar Recebimento</span>
