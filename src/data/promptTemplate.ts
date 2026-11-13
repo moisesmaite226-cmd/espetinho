@@ -28,8 +28,15 @@ Desenvolva uma aplicação web completa, moderna, responsiva (foco total em celu
     - *Porção Individual / Acompanhamento (~120g)*
   - Cada tamanho possui seu próprio preço e custo cadastrados (ex: Meia Mandioca R$ 18,00 | Inteira R$ 28,00).
   - O tamanho escolhido é impresso detalhadamente na comanda, no extrato do cliente e no comprovante do WhatsApp!
+- **Opções de Molhos & Acompanhamentos:**
+  - Suporte para escolha rápida de molhos por item na comanda (para espetinhos e porções) e venda avulsa em potes na categoria "🥫 Molhos":
+    - *Chimichurri*
+    - *Molho de Alho Cremoso*
+    - *Molho Barbecue Caseiro*
+    - *Vinagrete Clássico*
+  - O molho escolhido fica registrado na comanda, na venda e no comprovante do WhatsApp.
 - **Grade de Produtos:**
-  - Categorias com filtros rápidos: "🍢 Espetinhos", "🍟 Porções (Tamanhos)", "🍺 Bebidas Geladas", "Todos".
+  - Categorias com filtros rápidos: "🍢 Espetinhos", "🍟 Porções (Tamanhos)", "🥫 Molhos", "🍺 Bebidas Geladas", "Todos".
   - Cards com foto apetitosa, nome claro, tag de gramatura/tamanho, preço e estoque.
   - Toque direto no tamanho desejado (Meia ou Inteira) adiciona imediatamente ao carrinho sem passos extras.
 - **Carrinho e Fechamento:**

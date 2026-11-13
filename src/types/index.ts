@@ -1,4 +1,11 @@
-export type ProductCategory = 'espeto' | 'bebida' | 'porcao' | 'outro';
+export type ProductCategory = 'espeto' | 'bebida' | 'porcao' | 'molho' | 'outro';
+
+export type SauceOption =
+  | 'Sem molho'
+  | 'Chimichurri'
+  | 'Molho de Alho Cremoso'
+  | 'Molho Barbecue Caseiro'
+  | 'Vinagrete Clássico';
 
 export interface PortionVariant {
   id: string; // e.g. 'meia', 'inteira', 'individual'
@@ -40,6 +47,7 @@ export interface CartItem {
   product: Product;
   quantity: number;
   selectedVariant?: PortionVariant;
+  selectedSauce?: SauceOption;
   displayName: string;
   unitPrice: number;
 }
@@ -50,6 +58,7 @@ export interface SaleItem {
   productId: string;
   name: string;
   variantName?: string;
+  sauce?: string;
   quantity: number;
   unitPrice: number;
   subtotal: number;

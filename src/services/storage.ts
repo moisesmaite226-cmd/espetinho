@@ -16,12 +16,12 @@ import {
 } from '../data/initialData';
 
 const STORAGE_KEYS = {
-  PRODUCTS: 'espeto_products_v3',
-  CUSTOMERS: 'espeto_customers_v3',
-  SALES: 'espeto_sales_v3',
-  DEBTS: 'espeto_debts_v3',
-  CASH_FLOW: 'espeto_cash_flow_v3',
-  SETTINGS: 'espeto_settings_v3',
+  PRODUCTS: 'espeto_products_v4',
+  CUSTOMERS: 'espeto_customers_v4',
+  SALES: 'espeto_sales_v4',
+  DEBTS: 'espeto_debts_v4',
+  CASH_FLOW: 'espeto_cash_flow_v4',
+  SETTINGS: 'espeto_settings_v4',
 };
 
 function safeGet<T>(key: string, fallback: T): T {

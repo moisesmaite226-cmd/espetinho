@@ -7,8 +7,10 @@ import {
   Sale, 
   AppSettings,
   PortionVariant,
+  SauceOption,
   ProductCategory 
 } from '../types';
+import { SAUCE_OPTIONS } from '../data/initialData';
 import { 
   formatCurrency, 
   sanitizePhoneForWhatsApp, 
@@ -33,6 +35,7 @@ import {
   Scale,
   Users,
   Info,
+  Droplets,
   X
 } from 'lucide-react';
 
@@ -63,6 +66,7 @@ export const PDVView: React.FC<PDVViewProps> = ({
   
   // Portion Variant Picker Modal
   const [variantModalProduct, setVariantModalProduct] = useState<Product | null>(null);
+  const [modalSauce, setModalSauce] = useState<SauceOption>('Sem molho');
 
   // Checkout Modal states
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -94,22 +98,32 @@ export const PDVView: React.FC<PDVViewProps> = ({
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   // Helper to generate unique cart key
-  const getCartItemKey = (productId: string, variantId?: string) => {
-    return variantId ? `${productId}_${variantId}` : `${productId}_default`;
+  const getCartItemKey = (productId: string, variantId?: string, sauce?: SauceOption) => {
+    const vPart = variantId || 'default';
+    const sPart = sauce && sauce !== 'Sem molho' ? sauce : 'none';
+    return `${productId}_${vPart}_${sPart}`;
   };
 
-  // Add to cart with specific portion variant
-  const addToCart = (product: Product, variant?: PortionVariant) => {
-    const unitPrice = variant ? variant.price : product.price;
-    const displayName = variant 
+  const formatCartDisplayName = (product: Product, variant?: PortionVariant, sauce?: SauceOption) => {
+    let base = variant
       ? `${product.name} (${variant.name}${variant.weightOrVolume ? ` ${variant.weightOrVolume}` : ''})`
       : product.name;
+    if (sauce && sauce !== 'Sem molho') {
+      base += ` · Molho: ${sauce}`;
+    }
+    return base;
+  };
 
-    const itemKey = getCartItemKey(product.id, variant?.id);
+  // Add to cart with specific portion variant and optional sauce
+  const addToCart = (product: Product, variant?: PortionVariant, sauce?: SauceOption) => {
+    const unitPrice = variant ? variant.price : product.price;
+    const chosenSauce: SauceOption = sauce || 'Sem molho';
+    const displayName = formatCartDisplayName(product, variant, chosenSauce);
+    const itemKey = getCartItemKey(product.id, variant?.id, chosenSauce);
 
     setCart((prev) => {
       const existingIndex = prev.findIndex(
-        (item) => getCartItemKey(item.product.id, item.selectedVariant?.id) === itemKey
+        (item) => getCartItemKey(item.product.id, item.selectedVariant?.id, item.selectedSauce) === itemKey
       );
 
       if (existingIndex >= 0) {
@@ -124,6 +138,7 @@ export const PDVView: React.FC<PDVViewProps> = ({
           product,
           quantity: 1,
           selectedVariant: variant,
+          selectedSauce: chosenSauce,
           displayName,
           unitPrice,
         },
@@ -132,22 +147,66 @@ export const PDVView: React.FC<PDVViewProps> = ({
 
     if (variantModalProduct) {
       setVariantModalProduct(null);
+      setModalSauce('Sem molho');
     }
   };
 
   const handleProductCardClick = (product: Product) => {
     if (product.variants && product.variants.length > 0) {
+      setModalSauce('Sem molho');
       setVariantModalProduct(product);
     } else {
       addToCart(product);
     }
   };
 
+  const updateCartItemSauce = (oldCartKey: string, newSauce: SauceOption) => {
+    setCart((prev) => {
+      const targetItem = prev.find(
+        (item) => getCartItemKey(item.product.id, item.selectedVariant?.id, item.selectedSauce) === oldCartKey
+      );
+      if (!targetItem) return prev;
+
+      const newKey = getCartItemKey(targetItem.product.id, targetItem.selectedVariant?.id, newSauce);
+      if (newKey === oldCartKey) return prev;
+
+      const existingSameKey = prev.find(
+        (item) => getCartItemKey(item.product.id, item.selectedVariant?.id, item.selectedSauce) === newKey
+      );
+
+      if (existingSameKey) {
+        // Merge quantities
+        return prev
+          .map((item) => {
+            const k = getCartItemKey(item.product.id, item.selectedVariant?.id, item.selectedSauce);
+            if (k === newKey) {
+              return { ...item, quantity: item.quantity + targetItem.quantity };
+            }
+            if (k === oldCartKey) return null;
+            return item;
+          })
+          .filter(Boolean) as CartItem[];
+      }
+
+      return prev.map((item) => {
+        const k = getCartItemKey(item.product.id, item.selectedVariant?.id, item.selectedSauce);
+        if (k === oldCartKey) {
+          return {
+            ...item,
+            selectedSauce: newSauce,
+            displayName: formatCartDisplayName(item.product, item.selectedVariant, newSauce),
+          };
+        }
+        return item;
+      });
+    });
+  };
+
   const updateQuantity = (cartKey: string, delta: number) => {
     setCart((prev) => {
       return prev
         .map((item) => {
-          if (getCartItemKey(item.product.id, item.selectedVariant?.id) === cartKey) {
+          if (getCartItemKey(item.product.id, item.selectedVariant?.id, item.selectedSauce) === cartKey) {
             const newQty = item.quantity + delta;
             return newQty > 0 ? { ...item, quantity: newQty } : null;
           }
@@ -159,7 +218,7 @@ export const PDVView: React.FC<PDVViewProps> = ({
 
   const removeFromCart = (cartKey: string) => {
     setCart((prev) =>
-      prev.filter((item) => getCartItemKey(item.product.id, item.selectedVariant?.id) !== cartKey)
+      prev.filter((item) => getCartItemKey(item.product.id, item.selectedVariant?.id, item.selectedSauce) !== cartKey)
     );
   };
 
@@ -193,6 +252,7 @@ export const PDVView: React.FC<PDVViewProps> = ({
       productId: item.product.id,
       name: item.displayName,
       variantName: item.selectedVariant?.name,
+      sauce: item.selectedSauce && item.selectedSauce !== 'Sem molho' ? item.selectedSauce : undefined,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       subtotal: item.unitPrice * item.quantity,
@@ -301,6 +361,17 @@ export const PDVView: React.FC<PDVViewProps> = ({
               <Beer className="w-3.5 h-3.5" />
               Bebidas Geladas
             </button>
+            <button
+              onClick={() => setSelectedCategory('molho')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                selectedCategory === 'molho'
+                  ? 'bg-amber-500 text-neutral-950 shadow-sm'
+                  : 'bg-neutral-800 text-neutral-400 hover:text-white'
+              }`}
+            >
+              <Droplets className="w-3.5 h-3.5" />
+              Molhos
+            </button>
           </div>
 
           {/* Search Box */}
@@ -308,7 +379,7 @@ export const PDVView: React.FC<PDVViewProps> = ({
             <Search className="w-4 h-4 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Buscar porção, espeto..."
+              placeholder="Buscar espeto, porção, molho..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-3 py-1.5 text-xs bg-neutral-950 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-amber-500"
@@ -353,6 +424,7 @@ export const PDVView: React.FC<PDVViewProps> = ({
                       {product.category === 'espeto' && <Flame className="w-10 h-10 text-orange-400/50" />}
                       {product.category === 'bebida' && <Beer className="w-10 h-10 text-amber-400/50" />}
                       {product.category === 'porcao' && <UtensilsCrossed className="w-10 h-10 text-amber-500/50" />}
+                      {product.category === 'molho' && <Droplets className="w-10 h-10 text-emerald-400/50" />}
                       {product.category === 'outro' && <Layers className="w-10 h-10 text-neutral-500" />}
                     </div>
                   )}
@@ -421,10 +493,10 @@ export const PDVView: React.FC<PDVViewProps> = ({
                       
                       <div className="grid grid-cols-2 gap-1.5">
                         {product.variants!.map((variant) => {
-                          const variantCartKey = getCartItemKey(product.id, variant.id);
-                          const variantInCart = cart.find(
-                            (c) => getCartItemKey(c.product.id, c.selectedVariant?.id) === variantCartKey
-                          );
+                          const variantInCartQty = cart
+                            .filter((c) => c.product.id === product.id && c.selectedVariant?.id === variant.id)
+                            .reduce((sum, c) => sum + c.quantity, 0);
+                          const variantInCart = variantInCartQty > 0;
 
                           return (
                             <button
@@ -441,7 +513,7 @@ export const PDVView: React.FC<PDVViewProps> = ({
                                 <span className="font-bold text-xs truncate">{variant.name}</span>
                                 {variantInCart && (
                                   <span className="text-[10px] font-bold bg-amber-500 text-neutral-950 px-1.5 rounded-full">
-                                    {variantInCart.quantity}
+                                    {variantInCartQty}
                                   </span>
                                 )}
                               </div>
@@ -529,7 +601,8 @@ export const PDVView: React.FC<PDVViewProps> = ({
               </div>
             ) : (
               cart.map((item) => {
-                const cartKey = getCartItemKey(item.product.id, item.selectedVariant?.id);
+                const cartKey = getCartItemKey(item.product.id, item.selectedVariant?.id, item.selectedSauce);
+                const supportsSauce = item.product.category === 'espeto' || item.product.category === 'porcao';
 
                 return (
                   <div
@@ -561,6 +634,25 @@ export const PDVView: React.FC<PDVViewProps> = ({
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
+
+                    {/* Sauce selector for espetos and porções */}
+                    {supportsSauce && (
+                      <div className="flex items-center gap-2 bg-neutral-900/90 border border-neutral-800 rounded-lg px-2 py-1">
+                        <Droplets className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span className="text-[11px] text-neutral-400 shrink-0">Molho:</span>
+                        <select
+                          value={item.selectedSauce || 'Sem molho'}
+                          onChange={(e) => updateCartItemSauce(cartKey, e.target.value as SauceOption)}
+                          className="flex-1 bg-transparent text-[11px] font-medium text-amber-300 focus:outline-none cursor-pointer"
+                        >
+                          {SAUCE_OPTIONS.map((sauce) => (
+                            <option key={sauce} value={sauce} className="bg-neutral-900 text-white">
+                              {sauce}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     <div className="flex items-center justify-between pt-1 border-t border-neutral-900">
                       {/* Quantity Controls */}
@@ -660,12 +752,38 @@ export const PDVView: React.FC<PDVViewProps> = ({
               </div>
             )}
 
+            {/* Sauce Selector for Porções in Modal */}
+            {variantModalProduct.category === 'porcao' && (
+              <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-3 space-y-2">
+                <label className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
+                  <Droplets className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Opção de Molho de Acompanhamento:</span>
+                </label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {SAUCE_OPTIONS.map((sauce) => (
+                    <button
+                      key={sauce}
+                      type="button"
+                      onClick={() => setModalSauce(sauce)}
+                      className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-medium text-left transition-colors truncate ${
+                        modalSauce === sauce
+                          ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-semibold'
+                          : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      {sauce}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Variants options list */}
             <div className="space-y-2.5">
               {variantModalProduct.variants?.map((variant) => (
                 <div
                   key={variant.id}
-                  onClick={() => addToCart(variantModalProduct, variant)}
+                  onClick={() => addToCart(variantModalProduct, variant, modalSauce)}
                   className="bg-neutral-950 border border-neutral-800 hover:border-amber-500 p-3.5 rounded-xl cursor-pointer transition-all flex items-center justify-between group"
                 >
                   <div className="space-y-0.5">

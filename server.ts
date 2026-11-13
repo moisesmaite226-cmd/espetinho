@@ -48,6 +48,27 @@ async function seedDatabaseIfEmpty() {
           active: p.active,
         }).onConflictDoNothing();
       }
+    } else {
+      const existingSauces = await db.select().from(products).where(eq(products.category, 'molho')).limit(1);
+      if (existingSauces.length === 0) {
+        console.log('Seeding sauce products (molho) into PostgreSQL...');
+        for (const p of INITIAL_PRODUCTS.filter((item) => item.category === 'molho')) {
+          await db.insert(products).values({
+            id: p.id,
+            name: p.name,
+            category: p.category,
+            price: p.price,
+            costPrice: p.costPrice,
+            stock: p.stock,
+            minStock: p.minStock,
+            unit: p.unit,
+            portionSizeDescription: p.portionSizeDescription,
+            variants: p.variants ? JSON.stringify(p.variants) : null,
+            imageUrl: p.imageUrl,
+            active: p.active,
+          }).onConflictDoNothing();
+        }
+      }
     }
 
     const existingCustomers = await db.select().from(customers).limit(1);

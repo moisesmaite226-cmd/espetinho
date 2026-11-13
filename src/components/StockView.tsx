@@ -12,6 +12,7 @@ import {
   Flame, 
   Beer, 
   UtensilsCrossed,
+  Droplets,
   X
 } from 'lucide-react';
 
@@ -169,6 +170,16 @@ export const StockView: React.FC<StockViewProps> = ({
           >
             🍟 Porções
           </button>
+          <button
+            onClick={() => setSelectedCat('molho')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+              selectedCat === 'molho'
+                ? 'bg-amber-500 text-neutral-950 shadow-sm'
+                : 'bg-neutral-800 text-neutral-400 hover:text-white'
+            }`}
+          >
+            🥫 Molhos
+          </button>
         </div>
 
         {/* Search & Add */}
@@ -235,6 +246,7 @@ export const StockView: React.FC<StockViewProps> = ({
                               {p.category === 'espeto' && <Flame className="w-5 h-5 text-orange-400/60" />}
                               {p.category === 'bebida' && <Beer className="w-5 h-5 text-amber-400/60" />}
                               {p.category === 'porcao' && <UtensilsCrossed className="w-5 h-5 text-amber-500/60" />}
+                              {p.category === 'molho' && <Droplets className="w-5 h-5 text-emerald-400/60" />}
                             </div>
                           )}
                         </div>
@@ -405,6 +417,7 @@ export const StockView: React.FC<StockViewProps> = ({
                     <option value="espeto">🍢 Espetinho</option>
                     <option value="bebida">🍺 Bebida</option>
                     <option value="porcao">🍟 Porção</option>
+                    <option value="molho">🥫 Molho</option>
                     <option value="outro">🍬 Outro</option>
                   </select>
                 </div>

@@ -1,4 +1,12 @@
-import { Product, Customer, CashFlowEntry, AppSettings, DebtTransaction } from '../types';
+import { Product, Customer, CashFlowEntry, AppSettings, DebtTransaction, SauceOption } from '../types';
+
+export const SAUCE_OPTIONS: SauceOption[] = [
+  'Sem molho',
+  'Chimichurri',
+  'Molho de Alho Cremoso',
+  'Molho Barbecue Caseiro',
+  'Vinagrete Clássico',
+];
 
 export const INITIAL_PRODUCTS: Product[] = [
   // ESPETINHOS
@@ -289,6 +297,132 @@ export const INITIAL_PRODUCTS: Product[] = [
     unit: 'garrafa',
     portionSizeDescription: 'Garrafa 500ml com copo e limão',
     imageUrl: '/src/assets/images/garrafa_agua_mineral_1794323067274.jpg',
+    active: true,
+  },
+
+  // MOLHOS ARTESANAIS & ACOMPANHAMENTOS
+  {
+    id: 'molho_chimichurri',
+    name: 'Chimichurri Artesanal da Casa',
+    category: 'molho',
+    price: 3.00,
+    costPrice: 0.90,
+    stock: 40,
+    minStock: 10,
+    unit: 'pote',
+    portionSizeDescription: 'Potinho 60ml ou Pote Grande 150ml',
+    imageUrl: '/src/assets/images/molho_chimichurri_pote_1794567887170.jpg',
+    variants: [
+      {
+        id: 'potinho_60',
+        name: 'Potinho',
+        weightOrVolume: '60ml',
+        servesDescription: 'Ideal para 1 a 2 espetos',
+        price: 3.00,
+        costPrice: 0.90,
+      },
+      {
+        id: 'pote_150',
+        name: 'Pote Grande',
+        weightOrVolume: '150ml',
+        servesDescription: 'Para mesa / porção inteira',
+        price: 6.00,
+        costPrice: 1.80,
+      },
+    ],
+    active: true,
+  },
+  {
+    id: 'molho_alho',
+    name: 'Molho de Alho Cremoso',
+    category: 'molho',
+    price: 3.00,
+    costPrice: 0.85,
+    stock: 45,
+    minStock: 12,
+    unit: 'pote',
+    portionSizeDescription: 'Potinho 60ml ou Pote Grande 150ml',
+    imageUrl: '/src/assets/images/molho_alho_cremoso_1794567887054.jpg',
+    variants: [
+      {
+        id: 'potinho_60',
+        name: 'Potinho',
+        weightOrVolume: '60ml',
+        servesDescription: 'Ideal para espeto e mandioca',
+        price: 3.00,
+        costPrice: 0.85,
+      },
+      {
+        id: 'pote_150',
+        name: 'Pote Grande',
+        weightOrVolume: '150ml',
+        servesDescription: 'Para mesa / porção inteira',
+        price: 6.00,
+        costPrice: 1.70,
+      },
+    ],
+    active: true,
+  },
+  {
+    id: 'molho_barbecue',
+    name: 'Molho Barbecue Caseiro',
+    category: 'molho',
+    price: 3.00,
+    costPrice: 0.95,
+    stock: 35,
+    minStock: 10,
+    unit: 'pote',
+    portionSizeDescription: 'Potinho 60ml ou Pote Grande 150ml',
+    imageUrl: '/src/assets/images/molho_barbecue_caseiro_1794567888265.jpg',
+    variants: [
+      {
+        id: 'potinho_60',
+        name: 'Potinho',
+        weightOrVolume: '60ml',
+        servesDescription: 'Defumado na medida',
+        price: 3.00,
+        costPrice: 0.95,
+      },
+      {
+        id: 'pote_150',
+        name: 'Pote Grande',
+        weightOrVolume: '150ml',
+        servesDescription: 'Para mesa / batata e torresmo',
+        price: 6.00,
+        costPrice: 1.90,
+      },
+    ],
+    active: true,
+  },
+  {
+    id: 'molho_vinagrete',
+    name: 'Vinagrete Clássico de Boteco',
+    category: 'molho',
+    price: 4.00,
+    costPrice: 1.20,
+    stock: 30,
+    minStock: 10,
+    unit: 'pote',
+    portionSizeDescription: 'Potinho 80ml ou Cumbuca 200ml',
+    imageUrl: '/src/assets/images/molho_vinagrete_classico_1794567888404.jpg',
+    variants: [
+      {
+        id: 'potinho_80',
+        name: 'Potinho',
+        weightOrVolume: '80ml',
+        servesDescription: 'Individual',
+        price: 4.00,
+        costPrice: 1.20,
+      },
+      {
+        id: 'cumbuca_200',
+        name: 'Cumbuca Mesa',
+        weightOrVolume: '200ml',
+        servesDescription: 'Serve até 4 pessoas',
+        price: 8.00,
+        costPrice: 2.40,
+      },
+    ],
     active: true,
   },
 ];
