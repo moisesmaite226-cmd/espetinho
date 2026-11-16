@@ -124,7 +124,7 @@ export class AppApi {
   }
 
   static async addCashFlowEntry(
-    entry: Omit<CashFlowEntry, 'id' | 'timestamp'>
+    entry: CashFlowEntry
   ): Promise<void> {
     try {
       await fetch('/api/cash-flow', {
@@ -134,6 +134,26 @@ export class AppApi {
       });
     } catch (err) {
       console.error('Failed to add cash flow entry to PostgreSQL:', err);
+    }
+  }
+
+  static async deleteSale(saleId: string): Promise<void> {
+    try {
+      await fetch(`/api/sales/${encodeURIComponent(saleId)}`, {
+        method: 'DELETE',
+      });
+    } catch (err) {
+      console.error('Failed to delete/refund sale in PostgreSQL:', err);
+    }
+  }
+
+  static async deleteCashFlowEntry(entryId: string): Promise<void> {
+    try {
+      await fetch(`/api/cash-flow/${encodeURIComponent(entryId)}`, {
+        method: 'DELETE',
+      });
+    } catch (err) {
+      console.error('Failed to delete cash flow entry in PostgreSQL:', err);
     }
   }
 

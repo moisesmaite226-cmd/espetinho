@@ -49,35 +49,79 @@ async function seedDatabaseIfEmpty() {
         }).onConflictDoNothing();
       }
     } else {
-      const existingSauces = await db.select().from(products).where(eq(products.category, 'molho')).limit(1);
-      if (existingSauces.length === 0) {
-        console.log('Seeding sauce products (molho) into PostgreSQL...');
-        for (const p of INITIAL_PRODUCTS.filter((item) => item.category === 'molho')) {
-          await db.insert(products).values({
-            id: p.id,
-            name: p.name,
-            category: p.category,
-            price: p.price,
-            costPrice: p.costPrice,
-            stock: p.stock,
-            minStock: p.minStock,
-            unit: p.unit,
-            portionSizeDescription: p.portionSizeDescription,
-            variants: p.variants ? JSON.stringify(p.variants) : null,
-            imageUrl: p.imageUrl,
-            active: p.active,
-          }).onConflictDoNothing();
-        }
+      // Ensure any newly introduced INITIAL_PRODUCTS (such as sauces and expanded beers/drinks) are inserted
+      for (const p of INITIAL_PRODUCTS) {
+        await db.insert(products).values({
+          id: p.id,
+          name: p.name,
+          category: p.category,
+          price: p.price,
+          costPrice: p.costPrice,
+          stock: p.stock,
+          minStock: p.minStock,
+          unit: p.unit,
+          portionSizeDescription: p.portionSizeDescription,
+          variants: p.variants ? JSON.stringify(p.variants) : null,
+          imageUrl: p.imageUrl,
+          active: p.active,
+        }).onConflictDoNothing();
       }
     }
 
-    // Migrate any legacy /src/assets/images/ paths in PostgreSQL to /images/
+    // Sync legacy image paths & migrate Heineken (prod_8), Coca-Cola split (prod_10), and drink variants
     const allProds = await db.select().from(products);
+    const initialById = new Map(INITIAL_PRODUCTS.map((item) => [item.id, item]));
+
     for (const prod of allProds) {
       if (prod.imageUrl && prod.imageUrl.startsWith('/src/assets/images/')) {
         await db
           .update(products)
           .set({ imageUrl: prod.imageUrl.replace('/src/assets/images/', '/images/') })
+          .where(eq(products.id, prod.id));
+      }
+
+      const initProd = initialById.get(prod.id);
+      if (!initProd) continue;
+
+      if (
+        prod.id === 'prod_8' &&
+        (!prod.imageUrl || prod.imageUrl.includes('cervejas_gelo_balde') || !prod.variants)
+      ) {
+        await db
+          .update(products)
+          .set({
+            name: initProd.name,
+            portionSizeDescription: initProd.portionSizeDescription,
+            variants: initProd.variants ? JSON.stringify(initProd.variants) : null,
+            imageUrl: initProd.imageUrl,
+          })
+          .where(eq(products.id, prod.id));
+      }
+
+      if (
+        prod.id === 'prod_10' &&
+        (prod.name.includes('Guaraná') || !prod.imageUrl || prod.imageUrl.includes('refrigerante_lata_gelada'))
+      ) {
+        await db
+          .update(products)
+          .set({
+            name: initProd.name,
+            unit: initProd.unit,
+            portionSizeDescription: initProd.portionSizeDescription,
+            variants: initProd.variants ? JSON.stringify(initProd.variants) : null,
+            imageUrl: initProd.imageUrl,
+          })
+          .where(eq(products.id, prod.id));
+      }
+
+      if ((prod.id === 'prod_7' || prod.id === 'prod_11') && !prod.variants && initProd.variants) {
+        await db
+          .update(products)
+          .set({
+            name: initProd.name,
+            portionSizeDescription: initProd.portionSizeDescription,
+            variants: JSON.stringify(initProd.variants),
+          })
           .where(eq(products.id, prod.id));
       }
     }
@@ -180,12 +224,17 @@ app.get('/api/bootstrap', async (_req: Request, res: Response) => {
       variants: typeof p.variants === 'string' ? JSON.parse(p.variants) : p.variants,
     }));
 
+    const parsedSales = dbSales.map((s) => ({
+      ...s,
+      items: typeof s.items === 'string' ? JSON.parse(s.items) : s.items,
+    }));
+
     const currentSettings = dbSettings[0] || INITIAL_SETTINGS;
 
     res.json({
       products: parsedProducts,
       customers: dbCustomers,
-      sales: dbSales,
+      sales: parsedSales,
       debtTransactions: dbDebts,
       cashFlow: dbCashFlow,
       settings: currentSettings,
@@ -316,10 +365,11 @@ app.post('/api/customers', async (req: Request, res: Response) => {
   }
 });
 
-// 4. Sales & Fiado checkout
+// 4. Sales & Fiado checkout (supports single or split payment)
 app.post('/api/sales', async (req: Request, res: Response) => {
   try {
     const { sale, cart, method, customerId } = req.body;
+    const tableTag = sale.tableLabel ? `[${sale.tableLabel}] ` : '';
 
     // Insert sale record
     await db.insert(sales).values({
@@ -345,48 +395,54 @@ app.post('/api/sales', async (req: Request, res: Response) => {
       }
     }
 
-    // If upfront payment, record in cash flow
-    if (method !== 'fiado') {
-      await db.insert(cashFlow).values({
-        id: `cf_${Date.now()}`,
-        timestamp: sale.timestamp,
-        type: 'entrada',
-        category: 'venda_vista',
-        amount: sale.total,
-        description: `Venda #${sale.id.slice(-4)} (${sale.items?.length || 1} itens)`,
-        paymentMethod: method,
-        referenceId: sale.id,
-      });
-    }
+    const paymentLegs: { method: string; amount: number }[] = sale.splitPayment
+      ? [
+          { method: sale.splitPayment.primaryMethod, amount: Number(sale.splitPayment.primaryAmount) || 0 },
+          { method: sale.splitPayment.secondaryMethod, amount: Number(sale.splitPayment.secondaryAmount) || 0 },
+        ].filter((leg) => leg.amount > 0)
+      : [{ method, amount: Number(sale.total) || 0 }];
 
-    // If fiado, update customer debt and record debt transaction
-    if (method === 'fiado' && customerId) {
-      const target = await db.select().from(customers).where(eq(customers.id, customerId)).limit(1);
-      if (target.length > 0) {
-        const currentDebt = target[0].totalDebt || 0;
-        const newTotalDebt = currentDebt + sale.total;
-        await db.update(customers).set({
-          totalDebt: newTotalDebt,
-          lastPurchaseAt: sale.timestamp,
-        }).where(eq(customers.id, customerId));
-
-        const itemsSummary = (sale.items || [])
-          .map((i: any) => `${i.quantity}x ${i.name}`)
-          .join(', ');
-
-        await db.insert(debtTransactions).values({
-          id: `tx_${Date.now()}`,
-          customerId: target[0].id,
-          customerName: target[0].name,
-          saleId: sale.id,
-          type: 'compra',
-          amount: sale.total,
-          remainingDebtAfter: newTotalDebt,
+    for (let idx = 0; idx < paymentLegs.length; idx++) {
+      const leg = paymentLegs[idx];
+      if (leg.method !== 'fiado') {
+        await db.insert(cashFlow).values({
+          id: `cf_${Date.now()}_${idx}`,
           timestamp: sale.timestamp,
-          paymentMethodUsed: 'fiado',
-          description: `Compra no balcão: ${itemsSummary}`,
-          itemsSummary,
+          type: 'entrada',
+          category: 'venda_vista',
+          amount: leg.amount,
+          description: `${tableTag}Venda #${sale.id.slice(-4)} (${sale.items?.length || 1} itens)${sale.splitPayment ? ' - Parte' : ''}`,
+          paymentMethod: leg.method,
+          referenceId: sale.id,
         });
+      } else if (customerId) {
+        const target = await db.select().from(customers).where(eq(customers.id, customerId)).limit(1);
+        if (target.length > 0) {
+          const currentDebt = target[0].totalDebt || 0;
+          const newTotalDebt = currentDebt + leg.amount;
+          await db.update(customers).set({
+            totalDebt: newTotalDebt,
+            lastPurchaseAt: sale.timestamp,
+          }).where(eq(customers.id, customerId));
+
+          const itemsSummary = (sale.items || [])
+            .map((i: any) => `${i.quantity}x ${i.name}`)
+            .join(', ');
+
+          await db.insert(debtTransactions).values({
+            id: `tx_${Date.now()}_${idx}`,
+            customerId: target[0].id,
+            customerName: target[0].name,
+            saleId: sale.id,
+            type: 'compra',
+            amount: leg.amount,
+            remainingDebtAfter: newTotalDebt,
+            timestamp: sale.timestamp,
+            paymentMethodUsed: 'fiado',
+            description: `${tableTag}Compra no balcão: ${itemsSummary}`,
+            itemsSummary,
+          });
+        }
       }
     }
 
@@ -394,6 +450,57 @@ app.post('/api/sales', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Error processing sale:', err);
     res.status(500).json({ error: 'Failed to record sale' });
+  }
+});
+
+// 4b. Reverse / Refund Sale (restores stock, removes cash flow and reverts fiado debt)
+app.delete('/api/sales/:id', async (req: Request, res: Response) => {
+  try {
+    const saleId = req.params.id;
+    const found = await db.select().from(sales).where(eq(sales.id, saleId)).limit(1);
+    if (found.length === 0) {
+      return res.json({ success: true });
+    }
+
+    const targetSale = found[0];
+    const items = typeof targetSale.items === 'string' ? JSON.parse(targetSale.items) : targetSale.items;
+
+    // Restore stock for each item
+    if (Array.isArray(items)) {
+      for (const item of items) {
+        if (!item?.productId) continue;
+        const prod = await db.select().from(products).where(eq(products.id, item.productId)).limit(1);
+        if (prod.length > 0) {
+          await db
+            .update(products)
+            .set({ stock: prod[0].stock + (Number(item.quantity) || 0) })
+            .where(eq(products.id, item.productId));
+        }
+      }
+    }
+
+    // Remove associated cash flow entries
+    await db.delete(cashFlow).where(eq(cashFlow.referenceId, saleId));
+
+    // Revert fiado debt transactions linked to this sale
+    const relatedDebts = await db.select().from(debtTransactions).where(eq(debtTransactions.saleId, saleId));
+    for (const tx of relatedDebts) {
+      const cust = await db.select().from(customers).where(eq(customers.id, tx.customerId)).limit(1);
+      if (cust.length > 0) {
+        await db
+          .update(customers)
+          .set({ totalDebt: Math.max(0, (cust[0].totalDebt || 0) - tx.amount) })
+          .where(eq(customers.id, tx.customerId));
+      }
+    }
+    await db.delete(debtTransactions).where(eq(debtTransactions.saleId, saleId));
+
+    // Delete the sale record
+    await db.delete(sales).where(eq(sales.id, saleId));
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Error reversing sale:', err);
+    res.status(500).json({ error: 'Failed to reverse sale' });
   }
 });
 
@@ -495,11 +602,22 @@ app.post('/api/cash-flow', async (req: Request, res: Response) => {
       amount: entry.amount,
       description: entry.description,
       paymentMethod: entry.paymentMethod,
+      referenceId: entry.referenceId,
     });
     res.json({ success: true });
   } catch (err: any) {
     console.error('Error recording cash flow:', err);
     res.status(500).json({ error: 'Failed to record cash flow' });
+  }
+});
+
+app.delete('/api/cash-flow/:id', async (req: Request, res: Response) => {
+  try {
+    await db.delete(cashFlow).where(eq(cashFlow.id, req.params.id));
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Error deleting cash flow entry:', err);
+    res.status(500).json({ error: 'Failed to delete cash flow entry' });
   }
 });
 

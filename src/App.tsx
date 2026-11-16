@@ -23,8 +23,9 @@ import { CashFlowView } from './components/CashFlowView';
 import { StockView } from './components/StockView';
 import { PromptModal } from './components/PromptModal';
 import { SettingsModal } from './components/SettingsModal';
+import { OfflineIndicator } from './components/PWAInstallButton';
 import { formatCurrency } from './utils/formatters';
-import { Flame, Clock, Wallet, AlertCircle } from 'lucide-react';
+import { Flame, Clock, Wallet, BarChart3 } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('pdv');
@@ -118,28 +119,46 @@ export default function App() {
     setSales(updatedSales);
     AppStorage.saveSales(updatedSales);
 
-    // 1.3 If paid upfront (Dinheiro / Pix / Cartão), add to Cash Flow
-    if (method !== 'fiado') {
-      const cashEntry: CashFlowEntry = {
-        id: `cf_${Date.now()}`,
-        timestamp: sale.timestamp,
-        type: 'entrada',
-        category: 'venda_vista',
-        amount: sale.total,
-        description: `Venda #${sale.id.slice(-4)} (${sale.items.length} itens)`,
-        paymentMethod: method,
-        referenceId: sale.id,
-      };
-      const updatedCashFlow = [cashEntry, ...cashFlow];
+    // 1.3 Determine payment legs (single or split payment)
+    const tableTag = sale.tableLabel ? `[${sale.tableLabel}] ` : '';
+    const paymentLegs: { method: PaymentMethod; amount: number }[] = sale.splitPayment
+      ? [
+          { method: sale.splitPayment.primaryMethod, amount: sale.splitPayment.primaryAmount },
+          { method: sale.splitPayment.secondaryMethod, amount: sale.splitPayment.secondaryAmount },
+        ].filter((leg) => leg.amount > 0)
+      : [{ method, amount: sale.total }];
+
+    const newCashEntries: CashFlowEntry[] = [];
+    let fiadoLegAmount = 0;
+
+    paymentLegs.forEach((leg, idx) => {
+      if (leg.method !== 'fiado') {
+        newCashEntries.push({
+          id: `cf_${Date.now()}_${idx}`,
+          timestamp: sale.timestamp,
+          type: 'entrada',
+          category: 'venda_vista',
+          amount: leg.amount,
+          description: `${tableTag}Venda #${sale.id.slice(-4)} (${sale.items.length} itens)${sale.splitPayment ? ' - Parte' : ''}`,
+          paymentMethod: leg.method,
+          referenceId: sale.id,
+        });
+      } else {
+        fiadoLegAmount += leg.amount;
+      }
+    });
+
+    if (newCashEntries.length > 0) {
+      const updatedCashFlow = [...newCashEntries, ...cashFlow];
       setCashFlow(updatedCashFlow);
       AppStorage.saveCashFlow(updatedCashFlow);
     }
 
-    // 1.4 If FIADO, register customer debt
-    if (method === 'fiado' && customerId) {
+    // 1.4 If FIADO leg exists, register customer debt
+    if (fiadoLegAmount > 0 && customerId) {
       const targetCustomer = customers.find((c) => c.id === customerId);
       if (targetCustomer) {
-        const newTotalDebt = targetCustomer.totalDebt + sale.total;
+        const newTotalDebt = targetCustomer.totalDebt + fiadoLegAmount;
         const updatedCustomers = customers.map((c) =>
           c.id === customerId
             ? { ...c, totalDebt: newTotalDebt, lastPurchaseAt: sale.timestamp }
@@ -148,7 +167,6 @@ export default function App() {
         setCustomers(updatedCustomers);
         AppStorage.saveCustomers(updatedCustomers);
 
-        // Record debt transaction
         const itemsSummary = sale.items
           .map((i) => `${i.quantity}x ${i.name}`)
           .join(', ');
@@ -159,11 +177,11 @@ export default function App() {
           customerName: targetCustomer.name,
           saleId: sale.id,
           type: 'compra',
-          amount: sale.total,
+          amount: fiadoLegAmount,
           remainingDebtAfter: newTotalDebt,
           timestamp: sale.timestamp,
           paymentMethodUsed: 'fiado',
-          description: `Compra no balcão: ${itemsSummary}`,
+          description: `${tableTag}Compra no balcão: ${itemsSummary}`,
           itemsSummary,
         };
         const updatedDebtTx = [debtTx, ...debtTransactions];
@@ -328,7 +346,66 @@ export default function App() {
     AppStorage.saveCashFlow(updated);
 
     // Sync to PostgreSQL
-    AppApi.addCashFlowEntry(entry);
+    AppApi.addCashFlowEntry(newEntry);
+  };
+
+  // 6b. Delete single cash flow entry
+  const handleDeleteCashFlowEntry = (entryId: string) => {
+    const updated = cashFlow.filter((e) => e.id !== entryId);
+    setCashFlow(updated);
+    AppStorage.saveCashFlow(updated);
+    AppApi.deleteCashFlowEntry(entryId);
+  };
+
+  // 6c. Reverse / refund sale (restores stock, removes cash flow and reverts fiado debt)
+  const handleReverseSale = (saleId: string) => {
+    const targetSale = sales.find((s) => s.id === saleId);
+    if (!targetSale) return;
+
+    // Restore product stock
+    const updatedProducts = products.map((prod) => {
+      const qtyToRestore = targetSale.items
+        .filter((i) => i.productId === prod.id)
+        .reduce((sum, i) => sum + i.quantity, 0);
+      if (qtyToRestore > 0) {
+        return { ...prod, stock: prod.stock + qtyToRestore };
+      }
+      return prod;
+    });
+    setProducts(updatedProducts);
+    AppStorage.saveProducts(updatedProducts);
+
+    // Remove associated cash flow entries
+    const updatedCashFlow = cashFlow.filter((cf) => cf.referenceId !== saleId);
+    setCashFlow(updatedCashFlow);
+    AppStorage.saveCashFlow(updatedCashFlow);
+
+    // Revert linked fiado debt transactions
+    const linkedDebts = debtTransactions.filter((tx) => tx.saleId === saleId);
+    if (linkedDebts.length > 0) {
+      const updatedCustomers = customers.map((c) => {
+        const revertAmt = linkedDebts
+          .filter((tx) => tx.customerId === c.id)
+          .reduce((sum, tx) => sum + tx.amount, 0);
+        if (revertAmt > 0) {
+          return { ...c, totalDebt: Math.max(0, c.totalDebt - revertAmt) };
+        }
+        return c;
+      });
+      setCustomers(updatedCustomers);
+      AppStorage.saveCustomers(updatedCustomers);
+
+      const updatedDebts = debtTransactions.filter((tx) => tx.saleId !== saleId);
+      setDebtTransactions(updatedDebts);
+      AppStorage.saveDebtTransactions(updatedDebts);
+    }
+
+    // Remove sale
+    const updatedSales = sales.filter((s) => s.id !== saleId);
+    setSales(updatedSales);
+    AppStorage.saveSales(updatedSales);
+
+    AppApi.deleteSale(saleId);
   };
 
   // 7. Save product
@@ -415,6 +492,21 @@ export default function App() {
               </button>
             )}
 
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('caixa');
+                setTimeout(() => {
+                  document.getElementById('graficos-lucro')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 80);
+              }}
+              className="flex items-center gap-1.5 text-amber-400 hover:text-amber-300 font-semibold transition-colors whitespace-nowrap"
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Gráficos: Lucro & Mais Vendidos</span>
+              <span className="md:hidden">Gráficos</span>
+            </button>
+
             <div className="flex items-center gap-1 font-mono text-neutral-400">
               <Clock className="w-3.5 h-3.5" />
               <span>{currentTime || '18:00'}</span>
@@ -431,6 +523,7 @@ export default function App() {
           <PDVView
             products={products}
             customers={customers}
+            sales={sales}
             settings={settings}
             onCompleteSale={handleCompleteSale}
             onQuickAddCustomer={handleQuickAddCustomer}
@@ -451,14 +544,20 @@ export default function App() {
         {activeTab === 'caixa' && (
           <CashFlowView
             entries={cashFlow}
+            sales={sales}
+            products={products}
+            customers={customers}
             settings={settings}
             onAddEntry={handleAddCashFlowEntry}
+            onDeleteEntry={handleDeleteCashFlowEntry}
+            onReverseSale={handleReverseSale}
           />
         )}
 
         {activeTab === 'estoque' && (
           <StockView
             products={products}
+            sales={sales}
             onSaveProduct={handleSaveProduct}
             onQuickReplenish={handleQuickReplenish}
           />
@@ -507,6 +606,9 @@ export default function App() {
           onClose={() => setIsSettingsOpen(false)}
         />
       )}
+
+      {/* Offline Status Toast */}
+      <OfflineIndicator />
 
     </div>
   );

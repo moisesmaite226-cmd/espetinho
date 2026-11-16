@@ -126,14 +126,26 @@ export function buildWhatsAppReceiptMessage(
     .map((it) => `• ${it.quantity}x ${it.name} - ${formatCurrency(it.subtotal)}`)
     .join('\n');
 
+  const paymentLabels: Record<string, string> = {
+    dinheiro: 'Dinheiro',
+    pix: 'Pix',
+    cartao_debito: 'Cartão',
+    cartao_credito: 'Cartão Crédito',
+    fiado: 'Caderneta (Fiado)',
+  };
+
+  const formaText = sale.splitPayment
+    ? `${paymentLabels[sale.splitPayment.primaryMethod] || sale.splitPayment.primaryMethod} (${formatCurrency(sale.splitPayment.primaryAmount)}) + ${paymentLabels[sale.splitPayment.secondaryMethod] || sale.splitPayment.secondaryMethod} (${formatCurrency(sale.splitPayment.secondaryAmount)})`
+    : (paymentLabels[sale.paymentMethod] || sale.paymentMethod.toUpperCase());
+
   return `🍢 *${settings.storeName}* 🍺
-Comprovante de Venda #${sale.id.slice(-4)}
+Comprovante de Venda #${sale.id.slice(-4)}${sale.tableLabel ? ` (${sale.tableLabel})` : ''}
 Data: ${formatDateTime(sale.timestamp)}
 
 ${itemsText}
 
-*TOTAL:* ${formatCurrency(sale.total)}
-*Forma:* ${sale.paymentMethod === 'fiado' ? 'Caderneta (Fiado)' : sale.paymentMethod.toUpperCase()}
+${sale.discount && sale.discount > 0 ? `*Desconto:* -${formatCurrency(sale.discount)}\n` : ''}*TOTAL:* ${formatCurrency(sale.total)}
+*Forma:* ${formaText}
 ${sale.customerName ? `*Cliente:* ${sale.customerName}` : ''}
 
 Agradecemos a sua preferência e volte sempre! 🔥`;

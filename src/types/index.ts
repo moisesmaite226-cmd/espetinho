@@ -52,7 +52,36 @@ export interface CartItem {
   unitPrice: number;
 }
 
+export interface OpenOrderTab {
+  id: string;
+  label: string;
+  cart: CartItem[];
+  notes: string;
+  discount?: number;
+  createdAt: string;
+}
+
+export interface ComboOffer {
+  id: string;
+  name: string;
+  description: string;
+  badge: string;
+  promoPrice: number;
+  items: {
+    productId: string;
+    variantId?: string;
+    quantity: number;
+  }[];
+}
+
 export type PaymentMethod = 'dinheiro' | 'pix' | 'cartao_debito' | 'cartao_credito' | 'fiado';
+
+export interface SplitPaymentDetail {
+  primaryMethod: PaymentMethod;
+  primaryAmount: number;
+  secondaryMethod: PaymentMethod;
+  secondaryAmount: number;
+}
 
 export interface SaleItem {
   productId: string;
@@ -61,7 +90,10 @@ export interface SaleItem {
   sauce?: string;
   quantity: number;
   unitPrice: number;
+  unitCost?: number;
   subtotal: number;
+  totalCost?: number;
+  netProfit?: number;
 }
 
 export interface Sale {
@@ -69,11 +101,16 @@ export interface Sale {
   timestamp: string;
   items: SaleItem[];
   total: number;
+  discount?: number;
+  totalCost?: number;
+  netProfit?: number;
   paymentMethod: PaymentMethod;
+  splitPayment?: SplitPaymentDetail;
   cashReceived?: number;
   changeGiven?: number;
   customerId?: string;
   customerName?: string;
+  tableLabel?: string;
   notes?: string;
 }
 
@@ -100,6 +137,13 @@ export type CashFlowCategory =
   | 'compra_carne'
   | 'compra_bebidas'
   | 'compra_carvao_gelo'
+  | 'compra_carvao'
+  | 'compra_gelo'
+  | 'conta_agua'
+  | 'conta_luz'
+  | 'gas_cozinha'
+  | 'mao_de_obra_tempo'
+  | 'aluguel_taxas'
   | 'embalagens_descartaveis'
   | 'retirada_proprietario'
   | 'outros';

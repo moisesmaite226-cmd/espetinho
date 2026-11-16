@@ -11,6 +11,7 @@ import {
   X
 } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
+import { PWAInstallButton } from './PWAInstallButton';
 
 export type ActiveTab = 'pdv' | 'fiado' | 'caixa' | 'estoque' | 'prompt';
 
@@ -114,8 +115,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </nav>
 
-          {/* Zone 3: Actions (Prompt & Settings) */}
+          {/* Zone 3: Actions (Install PWA, Prompt & Settings) */}
           <div className="flex items-center gap-2 shrink-0">
+            <PWAInstallButton />
+
             <button
               onClick={openPrompt}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 transition-all whitespace-nowrap shadow-sm"

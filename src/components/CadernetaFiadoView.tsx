@@ -42,7 +42,7 @@ export const CadernetaFiadoView: React.FC<CadernetaFiadoViewProps> = ({
   onAddManualDebt,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'todos' | 'com_divida' | 'em_dia'>('com_divida');
+  const [statusFilter, setStatusFilter] = useState<'todos' | 'com_divida' | 'atrasados' | 'em_dia'>('com_divida');
 
   // Modals state
   const [chargeCustomer, setChargeCustomer] = useState<Customer | null>(null);
@@ -51,9 +51,17 @@ export const CadernetaFiadoView: React.FC<CadernetaFiadoViewProps> = ({
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
   const [isNewCustomerOpen, setIsNewCustomerOpen] = useState(false);
 
+  const getDaysSinceUpdate = (customer: Customer): number => {
+    const refDate = customer.lastPurchaseAt || customer.createdAt;
+    if (!refDate) return 0;
+    const diffMs = Date.now() - new Date(refDate).getTime();
+    return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+  };
+
   // Statistics
   const totalDebtAll = customers.reduce((sum, c) => sum + (c.totalDebt || 0), 0);
   const debtorsCount = customers.filter((c) => c.totalDebt > 0).length;
+  const overdueCount = customers.filter((c) => c.totalDebt > 0 && getDaysSinceUpdate(c) >= 7).length;
   const highestDebtor = [...customers].sort((a, b) => b.totalDebt - a.totalDebt)[0];
 
   // Filtering
@@ -66,6 +74,7 @@ export const CadernetaFiadoView: React.FC<CadernetaFiadoViewProps> = ({
     if (!matchesSearch) return false;
 
     if (statusFilter === 'com_divida') return customer.totalDebt > 0;
+    if (statusFilter === 'atrasados') return customer.totalDebt > 0 && getDaysSinceUpdate(customer) >= 7;
     if (statusFilter === 'em_dia') return customer.totalDebt === 0;
     return true;
   });
@@ -146,11 +155,11 @@ export const CadernetaFiadoView: React.FC<CadernetaFiadoViewProps> = ({
         </div>
 
         {/* Filter buttons */}
-        <div className="flex items-center gap-1.5">
-          <div className="flex bg-neutral-950 p-1 rounded-lg border border-neutral-800">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap bg-neutral-950 p-1 rounded-lg border border-neutral-800">
             <button
               onClick={() => setStatusFilter('com_divida')}
-              className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+              className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
                 statusFilter === 'com_divida'
                   ? 'bg-neutral-800 text-rose-300 shadow-sm'
                   : 'text-neutral-400 hover:text-white'
@@ -159,8 +168,18 @@ export const CadernetaFiadoView: React.FC<CadernetaFiadoViewProps> = ({
               Com Dívida ({debtorsCount})
             </button>
             <button
+              onClick={() => setStatusFilter('atrasados')}
+              className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+                statusFilter === 'atrasados'
+                  ? 'bg-amber-500/20 text-amber-300 shadow-sm'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              Atrasados +7d ({overdueCount})
+            </button>
+            <button
               onClick={() => setStatusFilter('em_dia')}
-              className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+              className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
                 statusFilter === 'em_dia'
                   ? 'bg-neutral-800 text-emerald-300 shadow-sm'
                   : 'text-neutral-400 hover:text-white'
@@ -170,7 +189,7 @@ export const CadernetaFiadoView: React.FC<CadernetaFiadoViewProps> = ({
             </button>
             <button
               onClick={() => setStatusFilter('todos')}
-              className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+              className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
                 statusFilter === 'todos'
                   ? 'bg-neutral-800 text-white shadow-sm'
                   : 'text-neutral-400 hover:text-white'
@@ -196,6 +215,8 @@ export const CadernetaFiadoView: React.FC<CadernetaFiadoViewProps> = ({
         {filteredCustomers.map((customer) => {
           const hasDebt = customer.totalDebt > 0;
           const cleanPhone = sanitizePhoneForWhatsApp(customer.phone);
+          const daysOpen = hasDebt ? getDaysSinceUpdate(customer) : 0;
+          const overLimit = Boolean(customer.creditLimit && customer.totalDebt > customer.creditLimit);
 
           return (
             <div
@@ -217,6 +238,24 @@ export const CadernetaFiadoView: React.FC<CadernetaFiadoViewProps> = ({
                       <p className="text-xs text-amber-400/90 font-medium truncate">
                         "{customer.nickname}"
                       </p>
+                    )}
+                    {hasDebt && (daysOpen >= 7 || overLimit) && (
+                      <div className="flex flex-wrap items-center gap-1 mt-1">
+                        {daysOpen >= 7 && (
+                          <span className={`text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded ${
+                            daysOpen >= 14
+                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                              : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                          }`}>
+                            Aberto há {daysOpen}d
+                          </span>
+                        )}
+                        {overLimit && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-600/25 text-rose-300 border border-rose-500/40">
+                            Limite excedido
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
 
@@ -248,7 +287,7 @@ export const CadernetaFiadoView: React.FC<CadernetaFiadoViewProps> = ({
                   </div>
 
                   {customer.creditLimit ? (
-                    <span className="text-[11px] text-neutral-500">
+                    <span className={`text-[11px] ${overLimit ? 'text-rose-400 font-semibold' : 'text-neutral-500'}`}>
                       Lim: {formatCurrency(customer.creditLimit)}
                     </span>
                   ) : null}

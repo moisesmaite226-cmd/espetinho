@@ -5,7 +5,7 @@ import {
   DebtTransaction,
   CashFlowEntry,
   AppSettings,
-  PaymentMethod,
+  OpenOrderTab,
 } from '../types';
 import {
   INITIAL_PRODUCTS,
@@ -22,6 +22,7 @@ const STORAGE_KEYS = {
   DEBTS: 'espeto_debts_v4',
   CASH_FLOW: 'espeto_cash_flow_v4',
   SETTINGS: 'espeto_settings_v4',
+  OPEN_TABS: 'espeto_open_tabs_v1',
 };
 
 export function normalizeImageUrl(url?: string): string | undefined {
@@ -30,10 +31,51 @@ export function normalizeImageUrl(url?: string): string | undefined {
 }
 
 function normalizeProducts(products: Product[]): Product[] {
-  return products.map((p) => ({
-    ...p,
-    imageUrl: normalizeImageUrl(p.imageUrl),
-  }));
+  const initialById = new Map(INITIAL_PRODUCTS.map((item) => [item.id, item]));
+  const normalized = products.map((p) => {
+    const cleanUrl = normalizeImageUrl(p.imageUrl);
+    const init = initialById.get(p.id);
+
+    if (init && p.id === 'prod_8' && (!cleanUrl || cleanUrl.includes('cervejas_gelo_balde') || !p.variants)) {
+      return {
+        ...p,
+        name: init.name,
+        portionSizeDescription: init.portionSizeDescription,
+        variants: init.variants,
+        imageUrl: init.imageUrl,
+      };
+    }
+
+    if (init && p.id === 'prod_10' && (p.name.includes('Guaraná') || !cleanUrl || cleanUrl.includes('refrigerante_lata_gelada'))) {
+      return {
+        ...p,
+        name: init.name,
+        unit: init.unit,
+        portionSizeDescription: init.portionSizeDescription,
+        variants: init.variants,
+        imageUrl: init.imageUrl,
+      };
+    }
+
+    if (init && (p.id === 'prod_7' || p.id === 'prod_11') && !p.variants && init.variants) {
+      return {
+        ...p,
+        name: init.name,
+        portionSizeDescription: init.portionSizeDescription,
+        variants: init.variants,
+        imageUrl: cleanUrl,
+      };
+    }
+
+    return {
+      ...p,
+      imageUrl: cleanUrl,
+    };
+  });
+
+  const existingIds = new Set(normalized.map((p) => p.id));
+  const missing = INITIAL_PRODUCTS.filter((initProd) => !existingIds.has(initProd.id));
+  return [...normalized, ...missing];
 }
 
 function safeGet<T>(key: string, fallback: T): T {
@@ -102,6 +144,23 @@ export class AppStorage {
 
   static saveSettings(settings: AppSettings): void {
     safeSet(STORAGE_KEYS.SETTINGS, settings);
+  }
+
+  static getOpenTabs(): OpenOrderTab[] {
+    return safeGet<OpenOrderTab[]>(STORAGE_KEYS.OPEN_TABS, [
+      {
+        id: 'tab_balcao',
+        label: 'Balcão',
+        cart: [],
+        notes: '',
+        discount: 0,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+  }
+
+  static saveOpenTabs(tabs: OpenOrderTab[]): void {
+    safeSet(STORAGE_KEYS.OPEN_TABS, tabs);
   }
 
   // Backup and restore

@@ -1,6 +1,13 @@
-import React, { useState } from 'react';
-import { Product, ProductCategory } from '../types';
+import React, { useState, useMemo } from 'react';
+import { Product, ProductCategory, Sale, PortionVariant } from '../types';
 import { formatCurrency } from '../utils/formatters';
+import { AVAILABLE_PRODUCT_IMAGES } from '../data/initialData';
+import { 
+  matchesProductFilterTab, 
+  buildSalesCountMap, 
+  sortProducts, 
+  ProductSortMode 
+} from '../utils/productHelpers';
 import { 
   Package, 
   AlertTriangle, 
@@ -8,26 +15,32 @@ import {
   Search, 
   Edit2, 
   TrendingUp, 
+  ArrowUpDown,
   Check, 
   Flame, 
   Beer, 
   UtensilsCrossed,
   Droplets,
+  Trash2,
+  Image as ImageIcon,
   X
 } from 'lucide-react';
 
 interface StockViewProps {
   products: Product[];
+  sales?: Sale[];
   onSaveProduct: (product: Product) => void;
   onQuickReplenish: (productId: string, quantityToAdd: number) => void;
 }
 
 export const StockView: React.FC<StockViewProps> = ({
   products,
+  sales = [],
   onSaveProduct,
   onQuickReplenish,
 }) => {
   const [selectedCat, setSelectedCat] = useState<string>('todos');
+  const [sortMode, setSortMode] = useState<ProductSortMode>('mais_vendidos');
   const [search, setSearch] = useState('');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
@@ -41,14 +54,21 @@ export const StockView: React.FC<StockViewProps> = ({
   const [minStock, setMinStock] = useState('10');
   const [unit, setUnit] = useState('un');
   const [portionSizeDescription, setPortionSizeDescription] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const [variants, setVariants] = useState<PortionVariant[]>([]);
 
   const lowStockProducts = products.filter((p) => p.active && p.stock <= p.minStock);
 
-  const filteredProducts = products.filter((p) => {
-    const matchesCat = selectedCat === 'todos' || p.category === selectedCat;
-    const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase());
-    return matchesCat && matchesSearch;
-  });
+  const salesCountMap = useMemo(() => buildSalesCountMap(sales), [sales]);
+
+  const filteredProducts = useMemo(() => {
+    const filtered = products.filter((p) => {
+      const matchesCat = matchesProductFilterTab(p, selectedCat);
+      const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase());
+      return matchesCat && matchesSearch;
+    });
+    return sortProducts(filtered, sortMode, salesCountMap);
+  }, [products, selectedCat, search, sortMode, salesCountMap]);
 
   const handleOpenEdit = (p: Product) => {
     setEditingProduct(p);
@@ -60,6 +80,8 @@ export const StockView: React.FC<StockViewProps> = ({
     setMinStock(p.minStock.toString());
     setUnit(p.unit);
     setPortionSizeDescription(p.portionSizeDescription || '');
+    setImageUrl(p.imageUrl || '');
+    setVariants(p.variants ? p.variants.map((v) => ({ ...v })) : []);
   };
 
   const handleOpenNew = () => {
@@ -72,7 +94,33 @@ export const StockView: React.FC<StockViewProps> = ({
     setMinStock('10');
     setUnit('porção');
     setPortionSizeDescription('Inteira ~600g ou Meia ~300g');
+    setImageUrl(AVAILABLE_PRODUCT_IMAGES[0]?.url || '');
+    setVariants([]);
     setIsNewModalOpen(true);
+  };
+
+  const handleAddVariantRow = () => {
+    setVariants((prev) => [
+      ...prev,
+      {
+        id: `var_${Date.now()}_${prev.length}`,
+        name: 'Novo Tamanho',
+        weightOrVolume: '',
+        servesDescription: '',
+        price: parseFloat(price.replace(',', '.')) || 0,
+        costPrice: parseFloat(costPrice.replace(',', '.')) || 0,
+      },
+    ]);
+  };
+
+  const handleUpdateVariantField = (idx: number, field: keyof PortionVariant, value: string | number) => {
+    setVariants((prev) =>
+      prev.map((v, i) => (i === idx ? { ...v, [field]: value } : v))
+    );
+  };
+
+  const handleRemoveVariantRow = (idx: number) => {
+    setVariants((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const handleSave = (e: React.FormEvent) => {
@@ -87,6 +135,14 @@ export const StockView: React.FC<StockViewProps> = ({
       return;
     }
 
+    const cleanedVariants = variants
+      .filter((v) => v.name.trim().length > 0 && v.price > 0)
+      .map((v) => ({
+        ...v,
+        name: v.name.trim(),
+        weightOrVolume: v.weightOrVolume?.trim() || undefined,
+      }));
+
     const prodToSave: Product = {
       id: editingProduct ? editingProduct.id : `prod_${Date.now()}`,
       name: name.trim(),
@@ -97,9 +153,9 @@ export const StockView: React.FC<StockViewProps> = ({
       minStock: numMin,
       unit: unit || 'un',
       portionSizeDescription: portionSizeDescription.trim() || undefined,
-      variants: editingProduct?.variants,
+      variants: cleanedVariants.length > 0 ? cleanedVariants : undefined,
       active: true,
-      imageUrl: editingProduct?.imageUrl,
+      imageUrl: imageUrl.trim() || editingProduct?.imageUrl,
     };
 
     onSaveProduct(prodToSave);
@@ -126,84 +182,118 @@ export const StockView: React.FC<StockViewProps> = ({
       )}
 
       {/* Control Strip */}
-      <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3 flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-        
-        {/* Category Tabs */}
-        <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-          <button
-            onClick={() => setSelectedCat('todos')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-              selectedCat === 'todos'
-                ? 'bg-amber-500 text-neutral-950 shadow-sm'
-                : 'bg-neutral-800 text-neutral-400 hover:text-white'
-            }`}
-          >
-            Todos ({products.length})
-          </button>
-          <button
-            onClick={() => setSelectedCat('espeto')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-              selectedCat === 'espeto'
-                ? 'bg-amber-500 text-neutral-950 shadow-sm'
-                : 'bg-neutral-800 text-neutral-400 hover:text-white'
-            }`}
-          >
-            🍢 Espetos
-          </button>
-          <button
-            onClick={() => setSelectedCat('bebida')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-              selectedCat === 'bebida'
-                ? 'bg-amber-500 text-neutral-950 shadow-sm'
-                : 'bg-neutral-800 text-neutral-400 hover:text-white'
-            }`}
-          >
-            🍺 Bebidas
-          </button>
-          <button
-            onClick={() => setSelectedCat('porcao')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-              selectedCat === 'porcao'
-                ? 'bg-amber-500 text-neutral-950 shadow-sm'
-                : 'bg-neutral-800 text-neutral-400 hover:text-white'
-            }`}
-          >
-            🍟 Porções
-          </button>
-          <button
-            onClick={() => setSelectedCat('molho')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-              selectedCat === 'molho'
-                ? 'bg-amber-500 text-neutral-950 shadow-sm'
-                : 'bg-neutral-800 text-neutral-400 hover:text-white'
-            }`}
-          >
-            🥫 Molhos
-          </button>
-        </div>
-
-        {/* Search & Add */}
-        <div className="flex items-center gap-2">
-          <div className="relative min-w-[180px]">
-            <Search className="w-4 h-4 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Buscar no estoque..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 text-xs bg-neutral-950 border border-neutral-700 rounded-lg text-white placeholder-neutral-500"
-            />
+      <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3 space-y-2.5">
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+          {/* Unified Category Tabs */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => setSelectedCat('todos')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                selectedCat === 'todos'
+                  ? 'bg-amber-500 text-neutral-950 shadow-sm'
+                  : 'bg-neutral-800 text-neutral-400 hover:text-white'
+              }`}
+            >
+              Todos ({products.length})
+            </button>
+            <button
+              onClick={() => setSelectedCat('espeto')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                selectedCat === 'espeto'
+                  ? 'bg-amber-500 text-neutral-950 shadow-sm'
+                  : 'bg-neutral-800 text-neutral-400 hover:text-white'
+              }`}
+            >
+              🍢 Espetos
+            </button>
+            <button
+              onClick={() => setSelectedCat('porcao')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                selectedCat === 'porcao'
+                  ? 'bg-amber-500 text-neutral-950 shadow-sm'
+                  : 'bg-neutral-800 text-neutral-400 hover:text-white'
+              }`}
+            >
+              🍟 Porções
+            </button>
+            <button
+              onClick={() => setSelectedCat('bebida')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                selectedCat === 'bebida'
+                  ? 'bg-amber-500 text-neutral-950 shadow-sm'
+                  : 'bg-neutral-800 text-neutral-400 hover:text-white'
+              }`}
+            >
+              🍺 Bebidas
+            </button>
+            <button
+              onClick={() => setSelectedCat('molho')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                selectedCat === 'molho'
+                  ? 'bg-amber-500 text-neutral-950 shadow-sm'
+                  : 'bg-neutral-800 text-neutral-400 hover:text-white'
+              }`}
+            >
+              🥫 Molhos
+            </button>
           </div>
 
-          <button
-            onClick={handleOpenNew}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-neutral-950 rounded-lg whitespace-nowrap shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Novo Produto</span>
-          </button>
+          {/* Search & Add */}
+          <div className="flex items-center gap-2">
+            <div className="relative min-w-[180px]">
+              <Search className="w-4 h-4 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Buscar no estoque..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 text-xs bg-neutral-950 border border-neutral-700 rounded-lg text-white placeholder-neutral-500"
+              />
+            </div>
+
+            <button
+              onClick={handleOpenNew}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-neutral-950 rounded-lg whitespace-nowrap shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Novo Produto</span>
+            </button>
+          </div>
         </div>
 
+        {/* Sort Mode Strip */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-neutral-800/80">
+          <span className="text-[11px] text-neutral-400">
+            Exibindo <strong className="text-neutral-200 font-mono">{filteredProducts.length}</strong> itens
+          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-neutral-500 font-medium mr-0.5">Organizar:</span>
+            <button
+              type="button"
+              onClick={() => setSortMode('mais_vendidos')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-colors ${
+                sortMode === 'mais_vendidos'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/60'
+                  : 'bg-neutral-950 text-neutral-400 border border-neutral-800 hover:text-white'
+              }`}
+            >
+              <TrendingUp className="w-3 h-3" />
+              Mais Vendidos
+            </button>
+            <button
+              type="button"
+              onClick={() => setSortMode('alfabetica')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-colors ${
+                sortMode === 'alfabetica'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/60'
+                  : 'bg-neutral-950 text-neutral-400 border border-neutral-800 hover:text-white'
+              }`}
+            >
+              <ArrowUpDown className="w-3 h-3" />
+              Ordem Alfabética (A–Z)
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Products Table */}
@@ -370,7 +460,7 @@ export const StockView: React.FC<StockViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
           <form
             onSubmit={handleSave}
-            className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl"
+            className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 space-y-4 shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -439,12 +529,12 @@ export const StockView: React.FC<StockViewProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-neutral-300 block mb-1">
-                    Preço de Custo (R$)
+                    Custo p/ Fazer (insumos, gás, carvão)
                   </label>
                   <input
                     type="number"
                     step="0.10"
-                    placeholder="0,00"
+                    placeholder="Ex: 6,00"
                     value={costPrice}
                     onChange={(e) => setCostPrice(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-700 rounded-lg text-white font-mono"
@@ -459,13 +549,28 @@ export const StockView: React.FC<StockViewProps> = ({
                     type="number"
                     step="0.50"
                     required
-                    placeholder="0,00"
+                    placeholder="Ex: 10,00"
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-neutral-950 border border-neutral-700 rounded-lg text-white font-mono"
                   />
                 </div>
               </div>
+
+              {(parseFloat(price.replace(',', '.')) || 0) > 0 && (
+                <div className="bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 flex items-center justify-between text-[11px]">
+                  <span className="text-neutral-400">Lucro líquido por unidade (seu ganho):</span>
+                  <span className="font-mono font-bold text-emerald-400 tabular-nums">
+                    {formatCurrency(
+                      Math.max(
+                        0,
+                        (parseFloat(price.replace(',', '.')) || 0) -
+                          (parseFloat(costPrice.replace(',', '.')) || 0)
+                      )
+                    )}
+                  </span>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -509,6 +614,111 @@ export const StockView: React.FC<StockViewProps> = ({
                 <span className="text-[10px] text-neutral-500">
                   Aparece em destaque nos cards do PDV para ajudar na escolha do cliente.
                 </span>
+              </div>
+
+              {/* Variants / Sizes Editor */}
+              <div className="pt-2 border-t border-neutral-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-neutral-300">
+                    Tamanhos / Volumes (Meia, Inteira, 600ml...)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddVariantRow}
+                    className="text-[11px] font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Adicionar tamanho
+                  </button>
+                </div>
+
+                {variants.length > 0 && (
+                  <div className="space-y-2">
+                    {variants.map((v, idx) => (
+                      <div key={v.id} className="bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 grid grid-cols-12 gap-2 items-end">
+                        <div className="col-span-5">
+                          <label className="text-[10px] text-neutral-500 block">Nome</label>
+                          <input
+                            type="text"
+                            value={v.name}
+                            onChange={(e) => handleUpdateVariantField(idx, 'name', e.target.value)}
+                            className="w-full px-2 py-1 text-xs bg-neutral-900 border border-neutral-700 rounded text-white"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="text-[10px] text-neutral-500 block">Peso/Vol</label>
+                          <input
+                            type="text"
+                            placeholder="350ml"
+                            value={v.weightOrVolume || ''}
+                            onChange={(e) => handleUpdateVariantField(idx, 'weightOrVolume', e.target.value)}
+                            className="w-full px-2 py-1 text-xs bg-neutral-900 border border-neutral-700 rounded text-white"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="text-[10px] text-neutral-500 block">Custo</label>
+                          <input
+                            type="number"
+                            step="0.10"
+                            value={v.costPrice}
+                            onChange={(e) => handleUpdateVariantField(idx, 'costPrice', parseFloat(e.target.value) || 0)}
+                            className="w-full px-2 py-1 text-xs font-mono bg-neutral-900 border border-neutral-700 rounded text-white"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="text-[10px] text-neutral-500 block">Venda</label>
+                          <input
+                            type="number"
+                            step="0.50"
+                            value={v.price}
+                            onChange={(e) => handleUpdateVariantField(idx, 'price', parseFloat(e.target.value) || 0)}
+                            className="w-full px-2 py-1 text-xs font-mono bg-neutral-900 border border-neutral-700 rounded text-amber-400"
+                          />
+                        </div>
+                        <div className="col-span-1 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveVariantRow(idx)}
+                            className="p-1 text-neutral-500 hover:text-rose-400"
+                            title="Remover tamanho"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Photo Selector */}
+              <div className="pt-2 border-t border-neutral-800 space-y-2">
+                <label className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Foto do Produto</span>
+                </label>
+                <div className="grid grid-cols-6 gap-1.5 max-h-32 overflow-y-auto p-1 bg-neutral-950 border border-neutral-800 rounded-xl">
+                  {AVAILABLE_PRODUCT_IMAGES.map((img) => (
+                    <button
+                      key={img.url}
+                      type="button"
+                      onClick={() => setImageUrl(img.url)}
+                      title={img.label}
+                      className={`h-11 rounded-lg overflow-hidden border-2 transition-all ${
+                        imageUrl === img.url ? 'border-amber-400 scale-95' : 'border-transparent opacity-70 hover:opacity-100'
+                      }`}
+                    >
+                      <img src={img.url} alt={img.label} className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  placeholder="/images/... ou URL da foto"
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  className="w-full px-3 py-1.5 text-[11px] font-mono bg-neutral-950 border border-neutral-700 rounded-lg text-neutral-300"
+                />
               </div>
             </div>
 
