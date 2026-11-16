@@ -1042,62 +1042,72 @@ export const PDVView: React.FC<PDVViewProps> = ({
         </div>
 
         {/* Promotional Combos Strip */}
-        <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3 shadow-sm">
-          <button
-            type="button"
-            onClick={() => setShowCombos((v) => !v)}
-            className="w-full flex items-center justify-between text-left"
-          >
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              <span className="text-xs font-bold text-white uppercase tracking-wider">
-                Combos Prontos (1 Toque)
-              </span>
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                Desconto Automático
-              </span>
-            </div>
-            {showCombos ? (
-              <ChevronUp className="w-4 h-4 text-neutral-400" />
-            ) : (
-              <ChevronDown className="w-4 h-4 text-neutral-400" />
-            )}
-          </button>
+        {(() => {
+          const availableCombos = INITIAL_COMBOS.filter((combo) =>
+            combo.items.every((entry) =>
+              products.some((p) => p.id === entry.productId && p.active)
+            )
+          );
+          if (availableCombos.length === 0) return null;
+          return (
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setShowCombos((v) => !v)}
+                className="w-full flex items-center justify-between text-left"
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  <span className="text-xs font-bold text-white uppercase tracking-wider">
+                    Combos Prontos (1 Toque)
+                  </span>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                    Desconto Automático
+                  </span>
+                </div>
+                {showCombos ? (
+                  <ChevronUp className="w-4 h-4 text-neutral-400" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-neutral-400" />
+                )}
+              </button>
 
-          {showCombos && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-3">
-              {INITIAL_COMBOS.map((combo) => (
-                <button
-                  key={combo.id}
-                  type="button"
-                  onClick={() => handleAddCombo(combo)}
-                  className="bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 hover:border-amber-500/70 rounded-xl p-3 text-left transition-all flex flex-col justify-between gap-2 group active:scale-[0.99]"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between gap-1.5">
-                      <span className="text-xs font-bold text-white group-hover:text-amber-300 transition-colors">
-                        {combo.name}
-                      </span>
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 whitespace-nowrap">
-                        {combo.badge}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-neutral-400 leading-snug">{combo.description}</p>
-                  </div>
-                  <div className="flex items-center justify-between pt-1 border-t border-neutral-900">
-                    <span className="text-sm font-mono font-bold text-amber-400 tabular-nums">
-                      {formatCurrency(combo.promoPrice)}
-                    </span>
-                    <span className="text-[11px] font-bold text-amber-300 flex items-center gap-0.5">
-                      <Plus className="w-3.5 h-3.5" />
-                      Lançar Combo
-                    </span>
-                  </div>
-                </button>
-              ))}
+              {showCombos && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-3">
+                  {availableCombos.map((combo) => (
+                    <button
+                      key={combo.id}
+                      type="button"
+                      onClick={() => handleAddCombo(combo)}
+                      className="bg-neutral-950 hover:bg-neutral-800/80 border border-neutral-800 hover:border-amber-500/70 rounded-xl p-3 text-left transition-all flex flex-col justify-between gap-2 group active:scale-[0.99]"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <span className="text-xs font-bold text-white group-hover:text-amber-300 transition-colors">
+                            {combo.name}
+                          </span>
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 whitespace-nowrap">
+                            {combo.badge}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-neutral-400 leading-snug">{combo.description}</p>
+                      </div>
+                      <div className="flex items-center justify-between pt-1 border-t border-neutral-900">
+                        <span className="text-sm font-mono font-bold text-amber-400 tabular-nums">
+                          {formatCurrency(combo.promoPrice)}
+                        </span>
+                        <span className="text-[11px] font-bold text-amber-300 flex items-center gap-0.5">
+                          <Plus className="w-3.5 h-3.5" />
+                          Lançar Combo
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          );
+        })()}
 
         {/* Product Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">

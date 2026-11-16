@@ -436,6 +436,32 @@ export default function App() {
     AppApi.replenishProduct(productId, quantityToAdd);
   };
 
+  // 8b. Toggle product active/inactive in menu
+  const handleToggleProductActive = (productId: string) => {
+    let toggledProduct: Product | null = null;
+    const updated = products.map((p) => {
+      if (p.id === productId) {
+        toggledProduct = { ...p, active: !p.active };
+        return toggledProduct;
+      }
+      return p;
+    });
+    setProducts(updated);
+    AppStorage.saveProducts(updated);
+    if (toggledProduct) {
+      AppApi.saveProduct(toggledProduct);
+    }
+  };
+
+  // 8c. Delete product permanently
+  const handleDeleteProduct = (productId: string) => {
+    AppStorage.markProductRemoved(productId);
+    const updated = products.filter((p) => p.id !== productId);
+    setProducts(updated);
+    AppStorage.saveProducts(updated);
+    AppApi.deleteProduct(productId);
+  };
+
   // 9. Save Settings
   const handleSaveSettings = (newSettings: AppSettings) => {
     setSettings(newSettings);
@@ -560,6 +586,8 @@ export default function App() {
             sales={sales}
             onSaveProduct={handleSaveProduct}
             onQuickReplenish={handleQuickReplenish}
+            onToggleProductActive={handleToggleProductActive}
+            onDeleteProduct={handleDeleteProduct}
           />
         )}
 

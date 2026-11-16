@@ -321,6 +321,17 @@ app.post('/api/products/replenish', async (req: Request, res: Response) => {
   }
 });
 
+app.delete('/api/products/:id', async (req: Request, res: Response) => {
+  try {
+    const productId = req.params.id;
+    await db.delete(products).where(eq(products.id, productId));
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Error deleting product:', err);
+    res.status(500).json({ error: 'Failed to delete product' });
+  }
+});
+
 // 3. Customers
 app.get('/api/customers', async (_req: Request, res: Response) => {
   try {

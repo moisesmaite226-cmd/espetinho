@@ -181,6 +181,16 @@ export class AppApi {
     }
   }
 
+  static async deleteProduct(productId: string): Promise<void> {
+    try {
+      await fetch(`/api/products/${encodeURIComponent(productId)}`, {
+        method: 'DELETE',
+      });
+    } catch (err) {
+      console.error('Failed to delete product in PostgreSQL:', err);
+    }
+  }
+
   static async saveSettings(settings: AppSettings): Promise<void> {
     try {
       await fetch('/api/settings', {

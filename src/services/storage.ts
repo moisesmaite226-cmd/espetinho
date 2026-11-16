@@ -23,6 +23,7 @@ const STORAGE_KEYS = {
   CASH_FLOW: 'espeto_cash_flow_v4',
   SETTINGS: 'espeto_settings_v4',
   OPEN_TABS: 'espeto_open_tabs_v1',
+  REMOVED_PRODUCT_IDS: 'espeto_removed_product_ids_v1',
 };
 
 export function normalizeImageUrl(url?: string): string | undefined {
@@ -73,9 +74,12 @@ function normalizeProducts(products: Product[]): Product[] {
     };
   });
 
+  const removedIds = new Set(safeGet<string[]>(STORAGE_KEYS.REMOVED_PRODUCT_IDS, []));
   const existingIds = new Set(normalized.map((p) => p.id));
-  const missing = INITIAL_PRODUCTS.filter((initProd) => !existingIds.has(initProd.id));
-  return [...normalized, ...missing];
+  const missing = INITIAL_PRODUCTS.filter(
+    (initProd) => !existingIds.has(initProd.id) && !removedIds.has(initProd.id)
+  );
+  return [...normalized.filter((p) => !removedIds.has(p.id)), ...missing];
 }
 
 function safeGet<T>(key: string, fallback: T): T {
@@ -104,6 +108,20 @@ export class AppStorage {
 
   static saveProducts(products: Product[]): void {
     safeSet(STORAGE_KEYS.PRODUCTS, normalizeProducts(products));
+  }
+
+  static markProductRemoved(productId: string): void {
+    const current = safeGet<string[]>(STORAGE_KEYS.REMOVED_PRODUCT_IDS, []);
+    if (!current.includes(productId)) {
+      safeSet(STORAGE_KEYS.REMOVED_PRODUCT_IDS, [...current, productId]);
+    }
+  }
+
+  static unmarkProductRemoved(productId: string): void {
+    const current = safeGet<string[]>(STORAGE_KEYS.REMOVED_PRODUCT_IDS, []);
+    if (current.includes(productId)) {
+      safeSet(STORAGE_KEYS.REMOVED_PRODUCT_IDS, current.filter((id) => id !== productId));
+    }
   }
 
   static getCustomers(): Customer[] {
@@ -195,6 +213,7 @@ export class AppStorage {
   }
 
   static resetToDemo(): void {
+    safeSet(STORAGE_KEYS.REMOVED_PRODUCT_IDS, []);
     this.saveProducts(INITIAL_PRODUCTS);
     this.saveCustomers(INITIAL_CUSTOMERS);
     this.saveDebtTransactions(INITIAL_DEBT_TRANSACTIONS);

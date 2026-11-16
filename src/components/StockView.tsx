@@ -23,6 +23,8 @@ import {
   Droplets,
   Trash2,
   Image as ImageIcon,
+  Eye,
+  EyeOff,
   X
 } from 'lucide-react';
 
@@ -31,6 +33,8 @@ interface StockViewProps {
   sales?: Sale[];
   onSaveProduct: (product: Product) => void;
   onQuickReplenish: (productId: string, quantityToAdd: number) => void;
+  onToggleProductActive?: (productId: string) => void;
+  onDeleteProduct?: (productId: string) => void;
 }
 
 export const StockView: React.FC<StockViewProps> = ({
@@ -38,12 +42,17 @@ export const StockView: React.FC<StockViewProps> = ({
   sales = [],
   onSaveProduct,
   onQuickReplenish,
+  onToggleProductActive,
+  onDeleteProduct,
 }) => {
   const [selectedCat, setSelectedCat] = useState<string>('todos');
+  const [visibilityFilter, setVisibilityFilter] = useState<'todos' | 'ativos' | 'ocultos'>('todos');
   const [sortMode, setSortMode] = useState<ProductSortMode>('mais_vendidos');
   const [search, setSearch] = useState('');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteInModal, setConfirmDeleteInModal] = useState(false);
 
   // Form states for create/edit
   const [name, setName] = useState('');
@@ -56,8 +65,11 @@ export const StockView: React.FC<StockViewProps> = ({
   const [portionSizeDescription, setPortionSizeDescription] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [variants, setVariants] = useState<PortionVariant[]>([]);
+  const [active, setActive] = useState(true);
+  const [formError, setFormError] = useState('');
 
   const lowStockProducts = products.filter((p) => p.active && p.stock <= p.minStock);
+  const hiddenCount = products.filter((p) => !p.active).length;
 
   const salesCountMap = useMemo(() => buildSalesCountMap(sales), [sales]);
 
@@ -65,10 +77,16 @@ export const StockView: React.FC<StockViewProps> = ({
     const filtered = products.filter((p) => {
       const matchesCat = matchesProductFilterTab(p, selectedCat);
       const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase());
-      return matchesCat && matchesSearch;
+      const matchesVisibility =
+        visibilityFilter === 'todos'
+          ? true
+          : visibilityFilter === 'ativos'
+          ? p.active
+          : !p.active;
+      return matchesCat && matchesSearch && matchesVisibility;
     });
     return sortProducts(filtered, sortMode, salesCountMap);
-  }, [products, selectedCat, search, sortMode, salesCountMap]);
+  }, [products, selectedCat, visibilityFilter, search, sortMode, salesCountMap]);
 
   const handleOpenEdit = (p: Product) => {
     setEditingProduct(p);
@@ -82,6 +100,9 @@ export const StockView: React.FC<StockViewProps> = ({
     setPortionSizeDescription(p.portionSizeDescription || '');
     setImageUrl(p.imageUrl || '');
     setVariants(p.variants ? p.variants.map((v) => ({ ...v })) : []);
+    setActive(p.active);
+    setConfirmDeleteInModal(false);
+    setFormError('');
   };
 
   const handleOpenNew = () => {
@@ -96,6 +117,9 @@ export const StockView: React.FC<StockViewProps> = ({
     setPortionSizeDescription('Inteira ~600g ou Meia ~300g');
     setImageUrl(AVAILABLE_PRODUCT_IMAGES[0]?.url || '');
     setVariants([]);
+    setActive(true);
+    setConfirmDeleteInModal(false);
+    setFormError('');
     setIsNewModalOpen(true);
   };
 
@@ -131,7 +155,7 @@ export const StockView: React.FC<StockViewProps> = ({
     const numMin = parseInt(minStock, 10) || 5;
 
     if (!name.trim() || numPrice <= 0) {
-      alert('Informe um nome e preço de venda válidos!');
+      setFormError('Informe um nome e preço de venda válidos!');
       return;
     }
 
@@ -154,13 +178,14 @@ export const StockView: React.FC<StockViewProps> = ({
       unit: unit || 'un',
       portionSizeDescription: portionSizeDescription.trim() || undefined,
       variants: cleanedVariants.length > 0 ? cleanedVariants : undefined,
-      active: true,
+      active,
       imageUrl: imageUrl.trim() || editingProduct?.imageUrl,
     };
 
     onSaveProduct(prodToSave);
     setEditingProduct(null);
     setIsNewModalOpen(false);
+    setFormError('');
   };
 
   return (
@@ -261,11 +286,43 @@ export const StockView: React.FC<StockViewProps> = ({
           </div>
         </div>
 
-        {/* Sort Mode Strip */}
+        {/* Visibility Filter & Sort Mode Strip */}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-neutral-800/80">
-          <span className="text-[11px] text-neutral-400">
-            Exibindo <strong className="text-neutral-200 font-mono">{filteredProducts.length}</strong> itens
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] text-neutral-400">
+              Exibindo <strong className="text-neutral-200 font-mono">{filteredProducts.length}</strong> itens
+            </span>
+            <div className="flex items-center gap-1 bg-neutral-950 p-0.5 rounded-lg border border-neutral-800">
+              <button
+                type="button"
+                onClick={() => setVisibilityFilter('todos')}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                  visibilityFilter === 'todos' ? 'bg-neutral-800 text-white' : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                Todos
+              </button>
+              <button
+                type="button"
+                onClick={() => setVisibilityFilter('ativos')}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                  visibilityFilter === 'ativos' ? 'bg-emerald-500/20 text-emerald-300' : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                No Cardápio
+              </button>
+              <button
+                type="button"
+                onClick={() => setVisibilityFilter('ocultos')}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                  visibilityFilter === 'ocultos' ? 'bg-rose-500/20 text-rose-300' : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                Fora do Cardápio{hiddenCount > 0 ? ` (${hiddenCount})` : ''}
+              </button>
+            </div>
+          </div>
+
           <div className="flex items-center gap-1.5">
             <span className="text-[11px] text-neutral-500 font-medium mr-0.5">Organizar:</span>
             <button
@@ -318,7 +375,12 @@ export const StockView: React.FC<StockViewProps> = ({
                 const margin = p.price > 0 ? ((p.price - p.costPrice) / p.price) * 100 : 0;
 
                 return (
-                  <tr key={p.id} className="hover:bg-neutral-800/40 transition-colors">
+                  <tr
+                    key={p.id}
+                    className={`hover:bg-neutral-800/40 transition-colors ${
+                      !p.active ? 'opacity-65 bg-neutral-950/50' : ''
+                    }`}
+                  >
                     
                     {/* Photo & Name */}
                     <td className="px-4 py-3">
@@ -343,7 +405,12 @@ export const StockView: React.FC<StockViewProps> = ({
 
                         <div>
                           <div className="font-bold text-white text-xs">{p.name}</div>
-                          <span className="text-[10px] text-neutral-500 uppercase">{p.category} · {p.unit}</span>
+                          <div className="text-[10px] text-neutral-500 uppercase flex items-center gap-1.5">
+                            <span>{p.category} · {p.unit}</span>
+                            {!p.active && (
+                              <span className="text-rose-400 font-bold normal-case">· Fora do cardápio</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -435,16 +502,77 @@ export const StockView: React.FC<StockViewProps> = ({
                       </div>
                     </td>
 
-                    {/* Edit button */}
+                    {/* Actions: Toggle Cardápio / Edit / Delete */}
                     <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenEdit(p)}
-                        className="p-1.5 text-neutral-400 hover:text-white bg-neutral-800 rounded hover:bg-neutral-700 transition-colors"
-                        title="Editar produto"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        {onToggleProductActive && (
+                          <button
+                            type="button"
+                            onClick={() => onToggleProductActive(p.id)}
+                            className={`px-2 py-1 rounded text-[11px] font-semibold flex items-center gap-1 transition-colors whitespace-nowrap ${
+                              p.active
+                                ? 'bg-neutral-800 hover:bg-amber-500/20 text-neutral-300 hover:text-amber-300'
+                                : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
+                            }`}
+                            title={p.active ? 'Tirar do cardápio do PDV' : 'Voltar item para o cardápio'}
+                          >
+                            {p.active ? (
+                              <>
+                                <EyeOff className="w-3.5 h-3.5" />
+                                <span className="hidden xl:inline">Ocultar</span>
+                              </>
+                            ) : (
+                              <>
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Reativar</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEdit(p)}
+                          className="p-1.5 text-neutral-400 hover:text-white bg-neutral-800 rounded hover:bg-neutral-700 transition-colors"
+                          title="Editar produto"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+
+                        {onDeleteProduct && (
+                          confirmDeleteId === p.id ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onDeleteProduct(p.id);
+                                  setConfirmDeleteId(null);
+                                }}
+                                className="px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold whitespace-nowrap"
+                              >
+                                Excluir?
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="p-1 rounded bg-neutral-800 text-neutral-400 hover:text-white"
+                                title="Cancelar exclusão"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(p.id)}
+                              className="p-1.5 text-neutral-500 hover:text-rose-400 bg-neutral-800 rounded hover:bg-rose-950/40 transition-colors"
+                              title="Excluir produto definitivamente"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )
+                        )}
+                      </div>
                     </td>
 
                   </tr>
@@ -720,25 +848,92 @@ export const StockView: React.FC<StockViewProps> = ({
                   className="w-full px-3 py-1.5 text-[11px] font-mono bg-neutral-950 border border-neutral-700 rounded-lg text-neutral-300"
                 />
               </div>
+              {/* Visibility Toggle in Modal */}
+              <div className="pt-2 border-t border-neutral-800 flex items-center justify-between gap-3">
+                <div>
+                  <span className="text-xs font-semibold text-neutral-200 block">
+                    Exibir no Cardápio (PDV)
+                  </span>
+                  <span className="text-[11px] text-neutral-500">
+                    Desmarque para tirar do cardápio sem apagar o histórico de vendas.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActive((v) => !v)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+                    active
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                  }`}
+                >
+                  {active ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                  <span>{active ? 'No Cardápio' : 'Fora do Cardápio'}</span>
+                </button>
+              </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingProduct(null);
-                  setIsNewModalOpen(false);
-                }}
-                className="px-4 py-2 text-xs font-semibold text-neutral-400 hover:text-white bg-neutral-800 rounded-xl"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                className="px-5 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-neutral-950 rounded-xl shadow-md"
-              >
-                Salvar Produto
-              </button>
+            {formError && (
+              <p className="text-xs text-rose-400 bg-rose-950/40 border border-rose-800/60 rounded-lg px-3 py-2">
+                {formError}
+              </p>
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+              {editingProduct && onDeleteProduct ? (
+                confirmDeleteInModal ? (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onDeleteProduct(editingProduct.id);
+                        setEditingProduct(null);
+                        setConfirmDeleteInModal(false);
+                      }}
+                      className="px-3 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white rounded-xl"
+                    >
+                      Confirmar Exclusão
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteInModal(false)}
+                      className="px-2.5 py-2 text-xs text-neutral-400 bg-neutral-800 rounded-xl"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteInModal(true)}
+                    className="px-3 py-2 text-xs font-semibold text-rose-400 hover:text-rose-300 bg-rose-950/30 border border-rose-900/50 rounded-xl flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Excluir Item</span>
+                  </button>
+                )
+              ) : (
+                <span />
+              )}
+
+              <div className="flex items-center gap-2 ml-auto">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingProduct(null);
+                    setIsNewModalOpen(false);
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-neutral-400 hover:text-white bg-neutral-800 rounded-xl"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-neutral-950 rounded-xl shadow-md"
+                >
+                  Salvar Produto
+                </button>
+              </div>
             </div>
           </form>
         </div>
