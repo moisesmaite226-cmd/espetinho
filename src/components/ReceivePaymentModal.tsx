@@ -23,6 +23,7 @@ export const ReceivePaymentModal: React.FC<ReceivePaymentModalProps> = ({
   const [method, setMethod] = useState<PaymentMethod>('pix');
   const [cashTendered, setCashTendered] = useState<string>('');
   const [notes, setNotes] = useState('');
+  const [confirmOverpay, setConfirmOverpay] = useState(false);
 
   const parseAmountInput = (raw: string): number => {
     const cleaned = raw.replace(/[^\d.,]/g, '').replace(',', '.');
@@ -32,6 +33,7 @@ export const ReceivePaymentModal: React.FC<ReceivePaymentModalProps> = ({
 
   const numAmount = parseAmountInput(amount);
   const remainingDebt = Math.max(0, customer.totalDebt - numAmount);
+  const isOverpay = numAmount > customer.totalDebt;
 
   const hasCashTendered = cashTendered.trim().length > 0;
   const numCashTendered = hasCashTendered ? parseAmountInput(cashTendered) : numAmount;
@@ -40,16 +42,12 @@ export const ReceivePaymentModal: React.FC<ReceivePaymentModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (numAmount <= 0) {
+    if (numAmount <= 0 || missingCash > 0) {
       return;
     }
-    if (missingCash > 0) {
+    if (isOverpay && !confirmOverpay) {
+      setConfirmOverpay(true);
       return;
-    }
-    if (numAmount > customer.totalDebt) {
-      if (!confirm(`O valor pago (${formatCurrency(numAmount)}) é maior que a dívida (${formatCurrency(customer.totalDebt)}). Deseja continuar?`)) {
-        return;
-      }
     }
 
     onReceivePayment(customer.id, numAmount, method, notes.trim() || undefined);
@@ -111,7 +109,10 @@ export const ReceivePaymentModal: React.FC<ReceivePaymentModalProps> = ({
                 step="0.50"
                 required
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  setAmount(e.target.value);
+                  setConfirmOverpay(false);
+                }}
                 className="w-full pl-10 pr-3 py-2 text-base font-mono bg-neutral-950 border border-neutral-700 rounded-lg text-white focus:outline-none focus:border-amber-500"
               />
             </div>
@@ -247,6 +248,12 @@ export const ReceivePaymentModal: React.FC<ReceivePaymentModalProps> = ({
             />
           </div>
 
+          {confirmOverpay && isOverpay && (
+            <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-700/70 text-xs text-amber-200">
+              O valor informado ({formatCurrency(numAmount)}) é maior que a dívida atual ({formatCurrency(customer.totalDebt)}). Clique novamente em <strong>Confirmar Recebimento</strong> se quiser continuar e zerar a dívida.
+            </div>
+          )}
+
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-2">
             <button
@@ -266,7 +273,7 @@ export const ReceivePaymentModal: React.FC<ReceivePaymentModalProps> = ({
               }`}
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>Confirmar Recebimento</span>
+              <span>{confirmOverpay && isOverpay ? 'Confirmar Mesmo Assim' : 'Confirmar Recebimento'}</span>
             </button>
           </div>
 

@@ -12,7 +12,10 @@ import {
   CashFlowEntry, 
   AppSettings, 
   PaymentMethod,
-  CartItem
+  CartItem,
+  ComboOffer,
+  DailyGoalSettings,
+  RegisterShift,
 } from './types';
 import { AppStorage } from './services/storage';
 import { AppApi } from './services/api';
@@ -23,9 +26,14 @@ import { CashFlowView } from './components/CashFlowView';
 import { StockView } from './components/StockView';
 import { PromptModal } from './components/PromptModal';
 import { SettingsModal } from './components/SettingsModal';
+import { CombosManagerModal } from './components/CombosManagerModal';
+import { SmartRestockModal } from './components/SmartRestockModal';
+import { RegisterShiftModal } from './components/RegisterShiftModal';
+import { DailyGoalThermometer } from './components/DailyGoalThermometer';
+import { DigitalMenuView } from './components/DigitalMenuView';
 import { OfflineIndicator } from './components/PWAInstallButton';
 import { formatCurrency } from './utils/formatters';
-import { Flame, Clock, Wallet, BarChart3 } from 'lucide-react';
+import { Flame, Clock, Wallet, BarChart3, LockKeyhole, Unlock } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('pdv');
@@ -37,10 +45,21 @@ export default function App() {
   const [debtTransactions, setDebtTransactions] = useState<DebtTransaction[]>([]);
   const [cashFlow, setCashFlow] = useState<CashFlowEntry[]>([]);
   const [settings, setSettings] = useState<AppSettings>(() => AppStorage.getSettings());
+  const [combos, setCombos] = useState<ComboOffer[]>(() => AppStorage.getCombos());
+  const [dailyGoals, setDailyGoals] = useState<DailyGoalSettings>(() => AppStorage.getDailyGoals());
+  const [currentShift, setCurrentShift] = useState<RegisterShift | null>(() => AppStorage.getCurrentShift());
+  const [shiftHistory, setShiftHistory] = useState<RegisterShift[]>(() => AppStorage.getShiftHistory());
 
-  // Global modals
+  // Global modals & public QR customer menu mode
   const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isCombosOpen, setIsCombosOpen] = useState(false);
+  const [isSmartRestockOpen, setIsSmartRestockOpen] = useState(false);
+  const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
+  const [isDigitalMenuModalOpen, setIsDigitalMenuModalOpen] = useState(false);
+  const [isCustomerMenuMode, setIsCustomerMenuMode] = useState<boolean>(() =>
+    typeof window !== 'undefined' && window.location.search.includes('cardapio=1')
+  );
   const [currentTime, setCurrentTime] = useState<string>('');
 
   // Initial data load
@@ -52,6 +71,10 @@ export default function App() {
     setDebtTransactions(AppStorage.getDebtTransactions());
     setCashFlow(AppStorage.getCashFlow());
     setSettings(AppStorage.getSettings());
+    setCombos(AppStorage.getCombos());
+    setDailyGoals(AppStorage.getDailyGoals());
+    setCurrentShift(AppStorage.getCurrentShift());
+    setShiftHistory(AppStorage.getShiftHistory());
 
     // 2. Fetch fresh data from Cloud SQL PostgreSQL
     const fresh = await AppApi.loadAllData();
@@ -81,11 +104,46 @@ export default function App() {
   // Total debt calculation
   const totalDebtPending = customers.reduce((sum, c) => sum + (c.totalDebt || 0), 0);
 
-  // Today's cash entries
+  // Today's cash entries & real net profit for DailyGoalThermometer
   const todayStr = new Date().toISOString().split('T')[0];
   const cashToday = cashFlow
     .filter((cf) => cf.timestamp.startsWith(todayStr))
     .reduce((sum, cf) => sum + (cf.type === 'entrada' ? cf.amount : -cf.amount), 0);
+
+  const todayRealProfit = (() => {
+    const todayPaidMargin = sales
+      .filter((s) => s.timestamp.startsWith(todayStr))
+      .reduce((sum, s) => {
+        let fiadoAmt = 0;
+        if (s.splitPayment) {
+          if (s.splitPayment.primaryMethod === 'fiado') fiadoAmt += s.splitPayment.primaryAmount;
+          if (s.splitPayment.secondaryMethod === 'fiado') fiadoAmt += s.splitPayment.secondaryAmount;
+        } else if (s.paymentMethod === 'fiado') {
+          fiadoAmt = s.total;
+        }
+        const paidRev = Math.max(0, s.total - fiadoAmt);
+        const saleCost =
+          typeof s.totalCost === 'number'
+            ? s.totalCost
+            : s.items.reduce((c, it) => {
+                const p = products.find((pr) => pr.id === it.productId);
+                return c + (it.unitCost ?? p?.costPrice ?? 0) * it.quantity;
+              }, 0);
+        return sum + (paidRev - saleCost);
+      }, 0);
+    const todayFiadoCollected = cashFlow
+      .filter(
+        (cf) =>
+          cf.timestamp.startsWith(todayStr) &&
+          cf.type === 'entrada' &&
+          cf.category === 'recebimento_fiado'
+      )
+      .reduce((sum, cf) => sum + cf.amount, 0);
+    const todayExpenses = cashFlow
+      .filter((cf) => cf.timestamp.startsWith(todayStr) && cf.type === 'saida')
+      .reduce((sum, cf) => sum + cf.amount, 0);
+    return todayPaidMargin + todayFiadoCollected - todayExpenses;
+  })();
 
   // HANDLERS
 
@@ -471,6 +529,119 @@ export default function App() {
     AppApi.saveSettings(newSettings);
   };
 
+  // 10. Save Combos
+  const handleSaveCombos = (nextCombos: ComboOffer[]) => {
+    setCombos(nextCombos);
+    AppStorage.saveCombos(nextCombos);
+  };
+
+  // 11. Save Daily Goals
+  const handleSaveDailyGoals = (nextGoals: DailyGoalSettings) => {
+    setDailyGoals(nextGoals);
+    AppStorage.saveDailyGoals(nextGoals);
+  };
+
+  // 12. Batch Smart Restock + optional Cash Flow expense
+  const handleBatchSmartRestock = (
+    items: { productId: string; quantityToAdd: number; estimatedCost: number; name: string }[],
+    recordCashOut: boolean
+  ) => {
+    const qtyMap = new Map(items.map((i) => [i.productId, i.quantityToAdd]));
+    const updatedProducts = products.map((p) => {
+      const add = qtyMap.get(p.id) || 0;
+      return add > 0 ? { ...p, stock: p.stock + add } : p;
+    });
+    setProducts(updatedProducts);
+    AppStorage.saveProducts(updatedProducts);
+
+    for (const item of items) {
+      AppApi.replenishProduct(item.productId, item.quantityToAdd);
+    }
+
+    if (recordCashOut) {
+      const totalCost = items.reduce((s, i) => s + i.estimatedCost, 0);
+      if (totalCost > 0) {
+        handleAddCashFlowEntry({
+          type: 'saida',
+          category: 'compra_carne',
+          amount: Number(totalCost.toFixed(2)),
+          description: `Reposição de estoque (${items.length} itens: ${items
+            .slice(0, 3)
+            .map((i) => `${i.quantityToAdd}x ${i.name}`)
+            .join(', ')}${items.length > 3 ? '...' : ''})`,
+          paymentMethod: 'dinheiro',
+        });
+      }
+    }
+  };
+
+  // 13. Open / Close Register Shift
+  const handleOpenShift = (openingCash: number, recordCashFlowEntry: boolean) => {
+    const shift: RegisterShift = {
+      id: `shift_${Date.now()}`,
+      openedAt: new Date().toISOString(),
+      openingCash,
+      status: 'open',
+    };
+    setCurrentShift(shift);
+    AppStorage.saveCurrentShift(shift);
+
+    if (recordCashFlowEntry && openingCash > 0) {
+      handleAddCashFlowEntry({
+        type: 'entrada',
+        category: 'suprimento_troco',
+        amount: openingCash,
+        description: 'Fundo de troco inicial — abertura do turno',
+        paymentMethod: 'dinheiro',
+      });
+    }
+  };
+
+  const handleCloseShift = (summary: {
+    countedCash: number;
+    expectedCashAtClose: number;
+    totalSalesRevenue: number;
+    netProfitAtClose: number;
+    notes?: string;
+  }) => {
+    if (!currentShift) return;
+    const closed: RegisterShift = {
+      ...currentShift,
+      closedAt: new Date().toISOString(),
+      countedCash: summary.countedCash,
+      expectedCashAtClose: summary.expectedCashAtClose,
+      totalSalesRevenue: summary.totalSalesRevenue,
+      netProfitAtClose: summary.netProfitAtClose,
+      notes: summary.notes,
+      status: 'closed',
+    };
+    const nextHistory = [closed, ...shiftHistory];
+    setShiftHistory(nextHistory);
+    AppStorage.saveShiftHistory(nextHistory);
+    setCurrentShift(null);
+    AppStorage.saveCurrentShift(null);
+    setIsShiftModalOpen(false);
+  };
+
+  // If opened via ?cardapio=1 or preview button, show clean Customer Menu page
+  if (isCustomerMenuMode) {
+    return (
+      <DigitalMenuView
+        products={products}
+        combos={combos}
+        settings={settings}
+        isPublicCustomerPage
+        onExitCustomerPage={() => {
+          setIsCustomerMenuMode(false);
+          if (window.location.search.includes('cardapio=1')) {
+            const cleanUrl = `${window.location.origin}${window.location.pathname}`;
+            window.history.replaceState({}, '', cleanUrl);
+          }
+        }}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans">
       
@@ -481,6 +652,7 @@ export default function App() {
         totalDebtPending={totalDebtPending}
         openSettings={() => setIsSettingsOpen(true)}
         openPrompt={() => setIsPromptOpen(true)}
+        openDigitalMenu={() => setIsDigitalMenuModalOpen(true)}
         storeName={settings.storeName}
       />
 
@@ -502,9 +674,48 @@ export default function App() {
                 {formatCurrency(cashToday)}
               </strong>
             </span>
+
+            <button
+              type="button"
+              onClick={() => setIsShiftModalOpen(true)}
+              className={`hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded font-semibold transition-colors ${
+                currentShift?.status === 'open'
+                  ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25'
+                  : 'bg-neutral-800 text-neutral-300 border border-neutral-700 hover:text-amber-300'
+              }`}
+            >
+              {currentShift?.status === 'open' ? (
+                <>
+                  <Unlock className="w-3 h-3" />
+                  <span>Turno Aberto · Fechar Caixa</span>
+                </>
+              ) : (
+                <>
+                  <LockKeyhole className="w-3 h-3" />
+                  <span>Abrir Caixa</span>
+                </>
+              )}
+            </button>
           </div>
 
           <div className="flex items-center gap-3">
+            {(() => {
+              const outOfStockCount = products.filter((p) => p.active && p.stock <= 0).length;
+              if (outOfStockCount === 0) return null;
+              return (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('estoque')}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/15 border border-rose-500/30 text-rose-300 hover:bg-rose-500/25 font-semibold transition-colors whitespace-nowrap"
+                  title="Itens zerados foram ocultados do cardápio — clique para repor"
+                >
+                  <span>
+                    {outOfStockCount} esgotado{outOfStockCount > 1 ? 's' : ''}
+                  </span>
+                </button>
+              );
+            })()}
+
             {totalDebtPending > 0 && (
               <button
                 onClick={() => setActiveTab('fiado')}
@@ -542,6 +753,14 @@ export default function App() {
         </div>
       </div>
 
+      {/* Daily Break-Even & Profit Goal Thermometer */}
+      <DailyGoalThermometer
+        todayProfit={todayRealProfit}
+        goals={dailyGoals}
+        onUpdateGoals={handleSaveDailyGoals}
+        variant="compact"
+      />
+
       {/* Main Content Viewport */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
         
@@ -550,9 +769,12 @@ export default function App() {
             products={products}
             customers={customers}
             sales={sales}
+            combos={combos}
             settings={settings}
             onCompleteSale={handleCompleteSale}
             onQuickAddCustomer={handleQuickAddCustomer}
+            onOpenStock={() => setActiveTab('estoque')}
+            onOpenCombosManager={() => setIsCombosOpen(true)}
           />
         )}
 
@@ -574,6 +796,11 @@ export default function App() {
             products={products}
             customers={customers}
             settings={settings}
+            dailyGoals={dailyGoals}
+            todayNetProfit={todayRealProfit}
+            currentShift={currentShift}
+            onUpdateDailyGoals={handleSaveDailyGoals}
+            onOpenRegisterShift={() => setIsShiftModalOpen(true)}
             onAddEntry={handleAddCashFlowEntry}
             onDeleteEntry={handleDeleteCashFlowEntry}
             onReverseSale={handleReverseSale}
@@ -588,6 +815,8 @@ export default function App() {
             onQuickReplenish={handleQuickReplenish}
             onToggleProductActive={handleToggleProductActive}
             onDeleteProduct={handleDeleteProduct}
+            onOpenCombosManager={() => setIsCombosOpen(true)}
+            onOpenSmartRestock={() => setIsSmartRestockOpen(true)}
           />
         )}
 
@@ -603,6 +832,13 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
+            <button
+              onClick={() => setIsDigitalMenuModalOpen(true)}
+              className="hover:text-amber-300 transition-colors font-medium"
+            >
+              📱 Cardápio QR
+            </button>
+            <span>·</span>
             <button
               onClick={() => setIsPromptOpen(true)}
               className="text-amber-400 hover:text-amber-300 transition-colors font-medium"
@@ -629,9 +865,60 @@ export default function App() {
       {isSettingsOpen && (
         <SettingsModal
           settings={settings}
+          dailyGoals={dailyGoals}
           onSaveSettings={handleSaveSettings}
+          onSaveDailyGoals={handleSaveDailyGoals}
           onReloadAllData={reloadAllData}
           onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
+
+      {/* Combos Manager Modal */}
+      {isCombosOpen && (
+        <CombosManagerModal
+          combos={combos}
+          products={products}
+          onSaveCombos={handleSaveCombos}
+          onClose={() => setIsCombosOpen(false)}
+        />
+      )}
+
+      {/* Smart Restock Shopping List Modal */}
+      {isSmartRestockOpen && (
+        <SmartRestockModal
+          products={products}
+          sales={sales}
+          onApplyRestock={handleBatchSmartRestock}
+          onClose={() => setIsSmartRestockOpen(false)}
+        />
+      )}
+
+      {/* Register Shift Opening & Closing Modal */}
+      {isShiftModalOpen && (
+        <RegisterShiftModal
+          currentShift={currentShift}
+          shiftHistory={shiftHistory}
+          entries={cashFlow}
+          sales={sales}
+          products={products}
+          settings={settings}
+          onOpenShift={handleOpenShift}
+          onCloseShift={handleCloseShift}
+          onClose={() => setIsShiftModalOpen(false)}
+        />
+      )}
+
+      {/* Digital Customer Menu / QR Modal */}
+      {isDigitalMenuModalOpen && (
+        <DigitalMenuView
+          products={products}
+          combos={combos}
+          settings={settings}
+          onOpenCustomerPreview={() => {
+            setIsDigitalMenuModalOpen(false);
+            setIsCustomerMenuMode(true);
+          }}
+          onCloseModal={() => setIsDigitalMenuModalOpen(false)}
         />
       )}
 

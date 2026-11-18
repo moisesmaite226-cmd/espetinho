@@ -18,7 +18,9 @@ import {
   sanitizePhoneForWhatsApp,
   buildWhatsAppReceiptMessage,
   formatDisplayPhone,
+  formatDateTime,
 } from '../utils/formatters';
+import { printKitchenOrder, printCustomerReceipt } from '../utils/thermalPrint';
 import {
   matchesProductFilterTab,
   buildSalesCountMap,
@@ -54,12 +56,17 @@ import {
   ChevronDown,
   ChevronUp,
   AlertTriangle,
+  Printer,
+  History,
+  RotateCcw,
+  Settings,
 } from 'lucide-react';
 
 interface PDVViewProps {
   products: Product[];
   customers: Customer[];
   sales?: Sale[];
+  combos?: ComboOffer[];
   settings: AppSettings;
   onCompleteSale: (
     sale: Sale,
@@ -74,6 +81,8 @@ interface PDVViewProps {
     phone: string;
     creditLimit?: number;
   }) => Customer;
+  onOpenStock?: () => void;
+  onOpenCombosManager?: () => void;
 }
 
 const DEFAULT_BALCAO_TAB = (): OpenOrderTab => ({
@@ -97,14 +106,18 @@ export const PDVView: React.FC<PDVViewProps> = ({
   products,
   customers,
   sales = [],
+  combos = INITIAL_COMBOS,
   settings,
   onCompleteSale,
   onQuickAddCustomer,
+  onOpenStock,
+  onOpenCombosManager,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('todos');
   const [sortMode, setSortMode] = useState<ProductSortMode>('mais_vendidos');
   const [searchQuery, setSearchQuery] = useState('');
   const [showCombos, setShowCombos] = useState(true);
+  const [isRecentSalesOpen, setIsRecentSalesOpen] = useState(false);
 
   // Multi-table / open comandas persisted in localStorage
   const [openTabs, setOpenTabs] = useState<OpenOrderTab[]>(() => {
@@ -137,9 +150,22 @@ export const PDVView: React.FC<PDVViewProps> = ({
   const [isKitchenModalOpen, setIsKitchenModalOpen] = useState(false);
   const [copiedKitchen, setCopiedKitchen] = useState(false);
 
-  // Out-of-stock inline confirmation
+  // Out-of-stock / oversell inline confirmation
   const [pendingStockConfirm, setPendingStockConfirm] = useState<
-    | { type: 'item'; product: Product; variant?: PortionVariant }
+    | {
+        type: 'item';
+        product: Product;
+        variant?: PortionVariant;
+        availableRemaining: number;
+        totalReserved: number;
+      }
+    | {
+        type: 'increment';
+        cartKey: string;
+        productName: string;
+        liveStock: number;
+        totalReserved: number;
+      }
     | { type: 'combo'; combo: ComboOffer; outOfStockNames: string[] }
     | null
   >(null);
@@ -172,9 +198,39 @@ export const PDVView: React.FC<PDVViewProps> = ({
 
   const salesCountMap = useMemo(() => buildSalesCountMap(sales), [sales]);
 
+  const liveProductById = useMemo(() => {
+    const map = new Map<string, Product>();
+    for (const p of products) {
+      map.set(p.id, p);
+    }
+    return map;
+  }, [products]);
+
+  // Quantidade já reservada em TODAS as comandas/mesas abertas
+  const reservedByProduct = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const tab of openTabs) {
+      for (const item of tab.cart) {
+        map.set(item.product.id, (map.get(item.product.id) || 0) + item.quantity);
+      }
+    }
+    return map;
+  }, [openTabs]);
+
+  const activeInStockCount = useMemo(
+    () => products.filter((p) => p.active && p.stock > 0).length,
+    [products]
+  );
+
+  const outOfStockHiddenCount = useMemo(
+    () => products.filter((p) => p.active && p.stock <= 0).length,
+    [products]
+  );
+
   const filteredProducts = useMemo(() => {
     const filtered = products.filter((p) => {
-      if (!p.active) return false;
+      // Itens pausados manualmente ou com estoque zerado somem automaticamente do cardápio
+      if (!p.active || p.stock <= 0) return false;
       const matchesCat = matchesProductFilterTab(p, selectedCategory);
       const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
       return matchesCat && matchesSearch;
@@ -235,11 +291,21 @@ export const PDVView: React.FC<PDVViewProps> = ({
   };
 
   const addToCart = (product: Product, variant?: PortionVariant, force = false) => {
-    if (!force && product.stock <= 0) {
-      setPendingStockConfirm({ type: 'item', product, variant });
+    const liveProd = liveProductById.get(product.id) || product;
+    const totalReserved = reservedByProduct.get(product.id) || 0;
+    const availableRemaining = liveProd.stock - totalReserved;
+
+    if (!force && availableRemaining <= 0) {
+      setPendingStockConfirm({
+        type: 'item',
+        product: liveProd,
+        variant,
+        availableRemaining,
+        totalReserved,
+      });
       return;
     }
-    commitItemToCart(product, variant);
+    commitItemToCart(liveProd, variant);
   };
 
   const handleProductCardClick = (product: Product) => {
@@ -307,9 +373,12 @@ export const PDVView: React.FC<PDVViewProps> = ({
   const handleAddCombo = (combo: ComboOffer) => {
     const outOfStockNames: string[] = [];
     for (const entry of combo.items) {
-      const prod = products.find((p) => p.id === entry.productId && p.active);
-      if (prod && prod.stock <= 0) {
-        outOfStockNames.push(prod.name);
+      const prod = liveProductById.get(entry.productId);
+      if (prod && prod.active) {
+        const reserved = reservedByProduct.get(prod.id) || 0;
+        if (prod.stock - reserved < entry.quantity) {
+          outOfStockNames.push(prod.name);
+        }
       }
     }
     if (outOfStockNames.length > 0) {
@@ -319,7 +388,27 @@ export const PDVView: React.FC<PDVViewProps> = ({
     commitComboToCart(combo);
   };
 
-  const updateQuantity = (cartKey: string, delta: number) => {
+  const updateQuantity = (cartKey: string, delta: number, force = false) => {
+    if (delta > 0 && !force) {
+      const targetItem = cart.find(
+        (item) => getCartItemKey(item.product.id, item.selectedVariant?.id) === cartKey
+      );
+      if (targetItem) {
+        const liveProd = liveProductById.get(targetItem.product.id) || targetItem.product;
+        const totalReserved = reservedByProduct.get(targetItem.product.id) || 0;
+        if (totalReserved + delta > liveProd.stock) {
+          setPendingStockConfirm({
+            type: 'increment',
+            cartKey,
+            productName: targetItem.product.name,
+            liveStock: liveProd.stock,
+            totalReserved,
+          });
+          return;
+        }
+      }
+    }
+
     updateActiveTab((tab) => ({
       ...tab,
       cart: tab.cart
@@ -759,11 +848,17 @@ export const PDVView: React.FC<PDVViewProps> = ({
         ) : (
           cart.map((item) => {
             const cartKey = getCartItemKey(item.product.id, item.selectedVariant?.id);
+            const liveProd = liveProductById.get(item.product.id);
+            const liveStock = liveProd ? liveProd.stock : item.product.stock;
+            const totalReserved = reservedByProduct.get(item.product.id) || item.quantity;
+            const hasStockConflict = !liveProd || !liveProd.active || totalReserved > liveStock;
 
             return (
               <div
                 key={cartKey}
-                className="bg-neutral-950 border border-neutral-800/90 rounded-xl p-3 flex flex-col gap-2"
+                className={`bg-neutral-950 border rounded-xl p-3 flex flex-col gap-2 ${
+                  hasStockConflict ? 'border-rose-500/60' : 'border-neutral-800/90'
+                }`}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -778,6 +873,18 @@ export const PDVView: React.FC<PDVViewProps> = ({
                     ) : (
                       <p className="text-[11px] text-neutral-500">
                         {item.product.portionSizeDescription || item.product.unit}
+                      </p>
+                    )}
+                    {hasStockConflict && (
+                      <p className="text-[10px] font-semibold text-rose-400 mt-0.5 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                        <span>
+                          {!liveProd || !liveProd.active
+                            ? 'Item fora do cardápio'
+                            : liveStock <= 0
+                            ? 'Esgotou no estoque!'
+                            : `Estoque atual: ${liveStock} un (nas mesas: ${totalReserved})`}
+                        </span>
                       </p>
                     )}
                   </div>
@@ -830,7 +937,7 @@ export const PDVView: React.FC<PDVViewProps> = ({
         {/* Quick Paid Sauce Add-on Bar when cart has espeto or porcao */}
         {cart.some((i) => i.product.category === 'espeto' || i.product.category === 'porcao') &&
           (() => {
-            const paidSauces = products.filter((p) => p.category === 'molho' && p.active);
+            const paidSauces = products.filter((p) => p.category === 'molho' && p.active && p.stock > 0);
             if (paidSauces.length === 0) return null;
             return (
               <div className="bg-neutral-950/80 border border-neutral-800 rounded-xl p-2.5 space-y-1.5">
@@ -857,6 +964,53 @@ export const PDVView: React.FC<PDVViewProps> = ({
                       >
                         <span className="text-[11px] font-medium text-neutral-200 truncate">
                           + {shortLabel}
+                        </span>
+                        <span className="text-[10px] font-mono font-bold text-amber-400 shrink-0 tabular-nums">
+                          {formatCurrency(priceToAdd)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
+        {/* Smart Cold Drink Upsell when comanda has food but no drink yet */}
+        {cart.some((i) => i.product.category === 'espeto' || i.product.category === 'porcao') &&
+          !cart.some((i) => i.product.category === 'bebida') &&
+          (() => {
+            const topDrinks = sortProducts(
+              products.filter((p) => {
+                if (p.category !== 'bebida' || !p.active || p.stock <= 0) return false;
+                const reserved = reservedByProduct.get(p.id) || 0;
+                return p.stock - reserved > 0;
+              }),
+              'mais_vendidos',
+              salesCountMap
+            ).slice(0, 2);
+
+            if (topDrinks.length === 0) return null;
+
+            return (
+              <div className="bg-sky-950/25 border border-sky-800/40 rounded-xl p-2.5 space-y-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-sky-300 flex items-center gap-1">
+                  <Beer className="w-3 h-3 text-sky-400" />
+                  <span>Sugestão inteligente · Falta bebida gelada?</span>
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {topDrinks.map((drinkProd) => {
+                    const baseVariant = drinkProd.variants?.[0];
+                    const priceToAdd = baseVariant ? baseVariant.price : drinkProd.price;
+                    return (
+                      <button
+                        key={drinkProd.id}
+                        type="button"
+                        onClick={() => addToCart(drinkProd, baseVariant)}
+                        className="px-2 py-1.5 bg-neutral-950 hover:bg-sky-500/15 hover:border-sky-500/60 border border-neutral-800 rounded-lg text-left transition-colors flex items-center justify-between gap-1"
+                      >
+                        <span className="text-[11px] font-medium text-neutral-200 truncate">
+                          + {drinkProd.name}
                         </span>
                         <span className="text-[10px] font-mono font-bold text-amber-400 shrink-0 tabular-nums">
                           {formatCurrency(priceToAdd)}
@@ -941,7 +1095,7 @@ export const PDVView: React.FC<PDVViewProps> = ({
                 }`}
               >
                 <Layers className="w-3.5 h-3.5" />
-                Todos ({products.filter((p) => p.active).length})
+                Todos ({activeInStockCount})
               </button>
               <button
                 type="button"
@@ -1006,13 +1160,37 @@ export const PDVView: React.FC<PDVViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-neutral-800/80">
-            <span className="text-[11px] text-neutral-400">
-              Mostrando <strong className="text-neutral-200 font-mono">{filteredProducts.length}</strong> itens
-              {selectedCategory === 'bebida' && ' (Cervejas, Coca-Cola, Guaraná, Sucos, Água e Energético)'}
-            </span>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-neutral-400">
+              <span>
+                Mostrando <strong className="text-neutral-200 font-mono">{filteredProducts.length}</strong> itens disponíveis
+                {selectedCategory === 'bebida' && ' (Cervejas, Coca-Cola, Guaraná, Sucos, Água e Energético)'}
+              </span>
+              {outOfStockHiddenCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => onOpenStock?.()}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25 font-semibold transition-colors"
+                  title="Itens com estoque zerado somem automaticamente do cardápio até serem repostos"
+                >
+                  <span>
+                    {outOfStockHiddenCount} esgotado{outOfStockHiddenCount > 1 ? 's' : ''} oculto{outOfStockHiddenCount > 1 ? 's' : ''}
+                  </span>
+                  {onOpenStock && <span className="underline">· Repor</span>}
+                </button>
+              )}
+            </div>
 
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-neutral-500 font-medium mr-0.5">Organizar:</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setIsRecentSalesOpen(true)}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap bg-neutral-950 text-neutral-300 border border-neutral-800 hover:border-amber-500/50 hover:text-amber-300 transition-colors"
+                title="Ver últimas vendas para reimprimir, enviar WhatsApp ou repetir pedido"
+              >
+                <History className="w-3 h-3 text-amber-400" />
+                <span>Últimas Vendas</span>
+              </button>
+              <span className="text-[11px] text-neutral-500 font-medium mx-0.5 hidden sm:inline">Organizar:</span>
               <button
                 type="button"
                 onClick={() => setSortMode('mais_vendidos')}
@@ -1043,34 +1221,56 @@ export const PDVView: React.FC<PDVViewProps> = ({
 
         {/* Promotional Combos Strip */}
         {(() => {
-          const availableCombos = INITIAL_COMBOS.filter((combo) =>
-            combo.items.every((entry) =>
-              products.some((p) => p.id === entry.productId && p.active)
-            )
+          const availableCombos = combos.filter(
+            (combo) =>
+              combo.active !== false &&
+              combo.items.every((entry) => {
+                const p = liveProductById.get(entry.productId);
+                return Boolean(p && p.active && p.stock >= entry.quantity);
+              })
           );
-          if (availableCombos.length === 0) return null;
+          if (availableCombos.length === 0 && !onOpenCombosManager) return null;
           return (
             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3 shadow-sm">
-              <button
-                type="button"
-                onClick={() => setShowCombos((v) => !v)}
-                className="w-full flex items-center justify-between text-left"
-              >
-                <div className="flex items-center gap-2">
+              <div className="w-full flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCombos((v) => !v)}
+                  className="flex items-center gap-2 text-left flex-1"
+                >
                   <Sparkles className="w-4 h-4 text-amber-400" />
                   <span className="text-xs font-bold text-white uppercase tracking-wider">
                     Combos Prontos (1 Toque)
                   </span>
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                    Desconto Automático
+                    {availableCombos.length} ativo{availableCombos.length === 1 ? '' : 's'}
                   </span>
+                </button>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {onOpenCombosManager && (
+                    <button
+                      type="button"
+                      onClick={onOpenCombosManager}
+                      className="px-2 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-amber-300 text-[11px] font-semibold flex items-center gap-1"
+                    >
+                      <Settings className="w-3 h-3" />
+                      <span>Editar Combos</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowCombos((v) => !v)}
+                    className="p-1 text-neutral-400 hover:text-white"
+                  >
+                    {showCombos ? (
+                      <ChevronUp className="w-4 h-4" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4" />
+                    )}
+                  </button>
                 </div>
-                {showCombos ? (
-                  <ChevronUp className="w-4 h-4 text-neutral-400" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-neutral-400" />
-                )}
-              </button>
+              </div>
 
               {showCombos && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-3">
@@ -1113,7 +1313,9 @@ export const PDVView: React.FC<PDVViewProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
           {filteredProducts.map((product) => {
             const hasVariants = product.variants && product.variants.length > 0;
-            const isLowStock = product.stock <= product.minStock;
+            const reservedTotal = reservedByProduct.get(product.id) || 0;
+            const remainingAvailable = Math.max(0, product.stock - reservedTotal);
+            const isLowStock = remainingAvailable <= product.minStock;
 
             const inCartQty = cart
               .filter((item) => item.product.id === product.id)
@@ -1154,14 +1356,22 @@ export const PDVView: React.FC<PDVViewProps> = ({
                   <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
                     <span
                       className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-semibold backdrop-blur-sm ${
-                        product.stock <= 0
+                        remainingAvailable === 0
                           ? 'bg-rose-500/90 text-white'
+                          : remainingAvailable === 1
+                          ? 'bg-orange-500 text-neutral-950 font-bold'
                           : isLowStock
                           ? 'bg-amber-500 text-neutral-950'
                           : 'bg-neutral-950/80 text-neutral-300 border border-neutral-700/80'
                       }`}
                     >
-                      {product.stock <= 0 ? 'Esgotado' : `${product.stock} un`}
+                      {remainingAvailable === 0
+                        ? 'Nas comandas (0 disp.)'
+                        : remainingAvailable === 1
+                        ? 'Última un!'
+                        : reservedTotal > 0
+                        ? `${remainingAvailable} disp. (${product.stock} est.)`
+                        : `${product.stock} un`}
                     </span>
                   </div>
 
@@ -1463,14 +1673,23 @@ export const PDVView: React.FC<PDVViewProps> = ({
                 <AlertCircle className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-white">Item Esgotado no Estoque (0 un)</h3>
+                <h3 className="text-sm font-bold text-white">
+                  {pendingStockConfirm.type === 'increment' ||
+                  (pendingStockConfirm.type === 'item' && pendingStockConfirm.product.stock > 0)
+                    ? 'Limite de Estoque Atingido nas Comandas'
+                    : 'Item Esgotado no Estoque (0 un)'}
+                </h3>
                 <p className="text-xs text-neutral-300 mt-1">
                   {pendingStockConfirm.type === 'item'
-                    ? `"${pendingStockConfirm.product.name}" está zerado no controle de estoque.`
-                    : `Os itens (${pendingStockConfirm.outOfStockNames.join(', ')}) estão zerados no estoque.`}
+                    ? pendingStockConfirm.product.stock > 0
+                      ? `"${pendingStockConfirm.product.name}" tem ${pendingStockConfirm.product.stock} un no estoque e já há ${pendingStockConfirm.totalReserved} reservada(s) nas comandas abertas.`
+                      : `"${pendingStockConfirm.product.name}" está zerado no controle de estoque.`
+                    : pendingStockConfirm.type === 'increment'
+                    ? `"${pendingStockConfirm.productName}" tem ${pendingStockConfirm.liveStock} un no estoque e já há ${pendingStockConfirm.totalReserved} nas comandas abertas.`
+                    : `Os itens (${pendingStockConfirm.outOfStockNames.join(', ')}) não têm unidades suficientes disponíveis para este combo.`}
                 </p>
                 <p className="text-[11px] text-neutral-500 mt-1">
-                  Se você acabou de repor na geladeira ou churrasqueira, pode adicionar normalmente.
+                  Se você acabou de repor na geladeira ou churrasqueira, pode adicionar mesmo assim.
                 </p>
               </div>
             </div>
@@ -1487,6 +1706,8 @@ export const PDVView: React.FC<PDVViewProps> = ({
                 onClick={() => {
                   if (pendingStockConfirm.type === 'item') {
                     commitItemToCart(pendingStockConfirm.product, pendingStockConfirm.variant);
+                  } else if (pendingStockConfirm.type === 'increment') {
+                    updateQuantity(pendingStockConfirm.cartKey, 1, true);
                   } else {
                     commitComboToCart(pendingStockConfirm.combo);
                   }
@@ -1561,19 +1782,34 @@ export const PDVView: React.FC<PDVViewProps> = ({
               </div>
             )}
 
-            <div className="flex items-center gap-2 pt-2">
+            <div className="flex flex-wrap items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() =>
+                  printKitchenOrder({
+                    storeName: settings.storeName,
+                    tableLabel: activeTab.label,
+                    items: cart,
+                    notes: activeTab.notes,
+                  })
+                }
+                className="flex-1 py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Imprimir Comanda</span>
+              </button>
               <button
                 type="button"
                 onClick={handleCopyKitchenOrder}
-                className="flex-1 py-2.5 px-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
+                className="py-2.5 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
               >
                 <Copy className="w-4 h-4 text-amber-400" />
-                <span>{copiedKitchen ? 'Pedido Copiado!' : 'Copiar Pedido'}</span>
+                <span>{copiedKitchen ? 'Copiado!' : 'Copiar'}</span>
               </button>
               <button
                 type="button"
                 onClick={() => setIsKitchenModalOpen(false)}
-                className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 text-xs font-bold"
+                className="px-4 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-bold"
               >
                 Fechar
               </button>
@@ -2323,6 +2559,15 @@ export const PDVView: React.FC<PDVViewProps> = ({
             </div>
 
             <div className="flex flex-col gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => printCustomerReceipt({ sale: completedSale, settings })}
+                className="w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Imprimir Recibo (58/80mm)</span>
+              </button>
+
               {completedSale.customerId &&
                 (() => {
                   const cust = customers.find((c) => c.id === completedSale.customerId);
@@ -2351,6 +2596,156 @@ export const PDVView: React.FC<PDVViewProps> = ({
               >
                 Próxima Venda
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recent Sales Modal (Reprint, WhatsApp, Repeat Order) */}
+      {isRecentSalesOpen && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-xl p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+              <div className="flex items-center gap-2">
+                <History className="w-5 h-5 text-amber-400" />
+                <div>
+                  <h3 className="text-base font-bold text-white">Últimas Vendas Realizadas</h3>
+                  <p className="text-xs text-neutral-400">
+                    Reimprima o cupom, envie no WhatsApp ou repita o pedido em {activeTab.label}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRecentSalesOpen(false)}
+                className="text-neutral-500 hover:text-white p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2.5">
+              {sales.length === 0 ? (
+                <div className="p-8 text-center bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-neutral-500">
+                  Nenhuma venda registrada ainda.
+                </div>
+              ) : (
+                sales.slice(0, 15).map((sale) => {
+                  const cust = sale.customerId
+                    ? customers.find((c) => c.id === sale.customerId)
+                    : undefined;
+                  const waUrl = cust
+                    ? `https://wa.me/${sanitizePhoneForWhatsApp(cust.phone)}?text=${encodeURIComponent(
+                        buildWhatsAppReceiptMessage(sale, settings)
+                      )}`
+                    : null;
+
+                  return (
+                    <div
+                      key={sale.id}
+                      className="bg-neutral-950 border border-neutral-800 rounded-xl p-3 space-y-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-xs font-bold text-white font-mono">
+                              #{sale.id.slice(-4)}
+                            </span>
+                            {sale.tableLabel && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-800 text-amber-300 font-semibold">
+                                {sale.tableLabel}
+                              </span>
+                            )}
+                            {sale.customerName && (
+                              <span className="text-[11px] text-neutral-300 font-semibold">
+                                · {sale.customerName}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[11px] text-neutral-500 block">
+                            {formatDateTime(sale.timestamp)} ·{' '}
+                            {PAYMENT_METHOD_LABELS[sale.paymentMethod]}
+                          </span>
+                        </div>
+                        <span className="text-sm font-mono font-bold text-amber-400 tabular-nums shrink-0">
+                          {formatCurrency(sale.total)}
+                        </span>
+                      </div>
+
+                      <p className="text-[11px] text-neutral-400">
+                        {sale.items.map((i) => `${i.quantity}x ${i.name}`).join(', ')}
+                      </p>
+
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-neutral-900">
+                        <button
+                          type="button"
+                          onClick={() => printCustomerReceipt({ sale, settings })}
+                          className="px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-[11px] font-semibold flex items-center gap-1"
+                        >
+                          <Printer className="w-3 h-3 text-amber-400" />
+                          <span>Imprimir</span>
+                        </button>
+
+                        {waUrl && (
+                          <a
+                            href={waUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 text-[11px] font-semibold flex items-center gap-1"
+                          >
+                            <Share2 className="w-3 h-3" />
+                            <span>WhatsApp</span>
+                          </a>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            updateActiveTab((tab) => {
+                              const nextCart = [...tab.cart];
+                              for (const sItem of sale.items) {
+                                const liveProd = liveProductById.get(sItem.productId);
+                                if (!liveProd || !liveProd.active || liveProd.stock <= 0) continue;
+                                const variant = sItem.variantName
+                                  ? liveProd.variants?.find((v) => v.name === sItem.variantName)
+                                  : undefined;
+                                const key = getCartItemKey(liveProd.id, variant?.id);
+                                const idx = nextCart.findIndex(
+                                  (c) => getCartItemKey(c.product.id, c.selectedVariant?.id) === key
+                                );
+                                if (idx >= 0) {
+                                  nextCart[idx] = {
+                                    ...nextCart[idx],
+                                    quantity: nextCart[idx].quantity + sItem.quantity,
+                                  };
+                                } else {
+                                  nextCart.push({
+                                    product: liveProd,
+                                    quantity: sItem.quantity,
+                                    selectedVariant: variant,
+                                    displayName: variant
+                                      ? `${liveProd.name} (${variant.name}${
+                                          variant.weightOrVolume ? ` ${variant.weightOrVolume}` : ''
+                                        })`
+                                      : liveProd.name,
+                                    unitPrice: variant ? variant.price : liveProd.price,
+                                  });
+                                }
+                              }
+                              return { ...tab, cart: nextCart };
+                            });
+                            setIsRecentSalesOpen(false);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] font-semibold flex items-center gap-1 ml-auto"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>Repetir em {activeTab.label}</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>

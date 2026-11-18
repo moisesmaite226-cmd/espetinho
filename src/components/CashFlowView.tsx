@@ -22,9 +22,13 @@ import {
   Trash2,
   RotateCcw,
   Calendar,
-  X
+  X,
+  LockKeyhole,
+  Unlock,
 } from 'lucide-react';
 import { ProfitAndTopItemsCharts } from './ProfitAndTopItemsCharts';
+import { DailyGoalThermometer } from './DailyGoalThermometer';
+import { DailyGoalSettings, RegisterShift } from '../types';
 
 interface CashFlowViewProps {
   entries: CashFlowEntry[];
@@ -32,6 +36,11 @@ interface CashFlowViewProps {
   products: Product[];
   customers: Customer[];
   settings: AppSettings;
+  dailyGoals?: DailyGoalSettings;
+  todayNetProfit?: number;
+  currentShift?: RegisterShift | null;
+  onUpdateDailyGoals?: (goals: DailyGoalSettings) => void;
+  onOpenRegisterShift?: () => void;
   onAddEntry: (entry: Omit<CashFlowEntry, 'id' | 'timestamp'>) => void;
   onDeleteEntry?: (entryId: string) => void;
   onReverseSale?: (saleId: string) => void;
@@ -43,6 +52,11 @@ export const CashFlowView: React.FC<CashFlowViewProps> = ({
   products,
   customers,
   settings,
+  dailyGoals,
+  todayNetProfit = 0,
+  currentShift,
+  onUpdateDailyGoals,
+  onOpenRegisterShift,
   onAddEntry,
   onDeleteEntry,
   onReverseSale,
@@ -53,6 +67,7 @@ export const CashFlowView: React.FC<CashFlowViewProps> = ({
   const [category, setCategory] = useState<CashFlowCategory>('compra_carvao');
   const [description, setDescription] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('dinheiro');
+  const [formError, setFormError] = useState('');
   const [copiedSummary, setCopiedSummary] = useState(false);
   const [workHours, setWorkHours] = useState('6');
   const [hourlyRate, setHourlyRate] = useState('15');
@@ -248,6 +263,7 @@ export const CashFlowView: React.FC<CashFlowViewProps> = ({
       setAmount('');
       setDescription(presetDesc || '');
     }
+    setFormError('');
     setIsAddModalOpen(true);
   };
 
@@ -266,7 +282,7 @@ export const CashFlowView: React.FC<CashFlowViewProps> = ({
     e.preventDefault();
     const val = parseFloat(amount.replace(',', '.')) || 0;
     if (val <= 0 || !description.trim()) {
-      alert('Informe um valor e uma descrição válida!');
+      setFormError('Informe um valor maior que zero e uma descrição válida.');
       return;
     }
 
@@ -278,6 +294,7 @@ export const CashFlowView: React.FC<CashFlowViewProps> = ({
       paymentMethod,
     });
 
+    setFormError('');
     setIsAddModalOpen(false);
     setAmount('');
     setDescription('');
@@ -316,6 +333,14 @@ Gerado pelo Espeto & Gelada Gestor 🔥`;
 
   return (
     <div className="space-y-6">
+      {dailyGoals && onUpdateDailyGoals && (
+        <DailyGoalThermometer
+          todayProfit={todayNetProfit}
+          goals={dailyGoals}
+          onUpdateGoals={onUpdateDailyGoals}
+          variant="expanded"
+        />
+      )}
 
       {/* PRIMARY PANEL: Real Financial Separation (Lucro Real no Bolso vs Todos os Gastos + Fiado que Saiu do Bolso) */}
       <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
@@ -636,6 +661,30 @@ Gerado pelo Espeto & Gelada Gestor 🔥`;
 
           {/* Actions */}
           <div className="flex items-center gap-2 flex-wrap">
+            {onOpenRegisterShift && (
+              <button
+                type="button"
+                onClick={onOpenRegisterShift}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg transition-colors border ${
+                  currentShift?.status === 'open'
+                    ? 'bg-amber-500 hover:bg-amber-400 text-neutral-950 border-amber-400'
+                    : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/40'
+                }`}
+              >
+                {currentShift?.status === 'open' ? (
+                  <>
+                    <LockKeyhole className="w-3.5 h-3.5" />
+                    <span>Conferir & Fechar Caixa</span>
+                  </>
+                ) : (
+                  <>
+                    <Unlock className="w-3.5 h-3.5" />
+                    <span>Abrir Caixa do Dia</span>
+                  </>
+                )}
+              </button>
+            )}
+
             <button
               onClick={handleCopyDailySummary}
               className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg transition-colors border border-neutral-700"
@@ -1114,6 +1163,11 @@ Gerado pelo Espeto & Gelada Gestor 🔥`;
                   </button>
                 </div>
               </div>
+              {formError && (
+                <div className="p-2.5 bg-rose-950/40 border border-rose-800 rounded-lg text-xs text-rose-300">
+                  {formError}
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-2">

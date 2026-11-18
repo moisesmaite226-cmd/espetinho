@@ -8,7 +8,8 @@ import {
   FileCode2, 
   Settings, 
   Menu,
-  X
+  X,
+  QrCode
 } from 'lucide-react';
 import { formatCurrency } from '../utils/formatters';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -21,6 +22,7 @@ interface NavbarProps {
   totalDebtPending: number;
   openSettings: () => void;
   openPrompt: () => void;
+  openDigitalMenu?: () => void;
   storeName: string;
 }
 
@@ -30,6 +32,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   totalDebtPending,
   openSettings,
   openPrompt,
+  openDigitalMenu,
   storeName,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
@@ -115,8 +118,20 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </nav>
 
-          {/* Zone 3: Actions (Install PWA, Prompt & Settings) */}
+          {/* Zone 3: Actions (QR Menu, Install PWA, Prompt & Settings) */}
           <div className="flex items-center gap-2 shrink-0">
+            {openDigitalMenu && (
+              <button
+                type="button"
+                onClick={openDigitalMenu}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 transition-colors whitespace-nowrap"
+                title="Abrir Cardápio Digital e QR Code para mesas"
+              >
+                <QrCode className="w-4 h-4 text-amber-400" />
+                <span className="hidden lg:inline">Cardápio QR</span>
+              </button>
+            )}
+
             <PWAInstallButton />
 
             <button

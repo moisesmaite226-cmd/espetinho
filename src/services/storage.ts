@@ -6,6 +6,9 @@ import {
   CashFlowEntry,
   AppSettings,
   OpenOrderTab,
+  ComboOffer,
+  DailyGoalSettings,
+  RegisterShift,
 } from '../types';
 import {
   INITIAL_PRODUCTS,
@@ -13,6 +16,7 @@ import {
   INITIAL_DEBT_TRANSACTIONS,
   INITIAL_CASH_FLOW,
   INITIAL_SETTINGS,
+  INITIAL_COMBOS,
 } from '../data/initialData';
 
 const STORAGE_KEYS = {
@@ -24,6 +28,15 @@ const STORAGE_KEYS = {
   SETTINGS: 'espeto_settings_v4',
   OPEN_TABS: 'espeto_open_tabs_v1',
   REMOVED_PRODUCT_IDS: 'espeto_removed_product_ids_v1',
+  COMBOS: 'espeto_combos_v1',
+  DAILY_GOALS: 'espeto_daily_goals_v1',
+  CURRENT_SHIFT: 'espeto_current_shift_v1',
+  SHIFT_HISTORY: 'espeto_shift_history_v1',
+};
+
+const DEFAULT_DAILY_GOALS: DailyGoalSettings = {
+  dailyFixedCost: 80,
+  dailyProfitTarget: 250,
 };
 
 export function normalizeImageUrl(url?: string): string | undefined {
@@ -181,10 +194,45 @@ export class AppStorage {
     safeSet(STORAGE_KEYS.OPEN_TABS, tabs);
   }
 
+  static getCombos(): ComboOffer[] {
+    return safeGet<ComboOffer[]>(
+      STORAGE_KEYS.COMBOS,
+      INITIAL_COMBOS.map((c) => ({ ...c, active: c.active ?? true }))
+    );
+  }
+
+  static saveCombos(combos: ComboOffer[]): void {
+    safeSet(STORAGE_KEYS.COMBOS, combos);
+  }
+
+  static getDailyGoals(): DailyGoalSettings {
+    return safeGet<DailyGoalSettings>(STORAGE_KEYS.DAILY_GOALS, DEFAULT_DAILY_GOALS);
+  }
+
+  static saveDailyGoals(goals: DailyGoalSettings): void {
+    safeSet(STORAGE_KEYS.DAILY_GOALS, goals);
+  }
+
+  static getCurrentShift(): RegisterShift | null {
+    return safeGet<RegisterShift | null>(STORAGE_KEYS.CURRENT_SHIFT, null);
+  }
+
+  static saveCurrentShift(shift: RegisterShift | null): void {
+    safeSet(STORAGE_KEYS.CURRENT_SHIFT, shift);
+  }
+
+  static getShiftHistory(): RegisterShift[] {
+    return safeGet<RegisterShift[]>(STORAGE_KEYS.SHIFT_HISTORY, []);
+  }
+
+  static saveShiftHistory(history: RegisterShift[]): void {
+    safeSet(STORAGE_KEYS.SHIFT_HISTORY, history);
+  }
+
   // Backup and restore
   static exportFullBackup(): string {
     const backup = {
-      version: '1.0',
+      version: '1.1',
       exportedAt: new Date().toISOString(),
       products: this.getProducts(),
       customers: this.getCustomers(),
@@ -192,6 +240,10 @@ export class AppStorage {
       debtTransactions: this.getDebtTransactions(),
       cashFlow: this.getCashFlow(),
       settings: this.getSettings(),
+      combos: this.getCombos(),
+      dailyGoals: this.getDailyGoals(),
+      currentShift: this.getCurrentShift(),
+      shiftHistory: this.getShiftHistory(),
     };
     return JSON.stringify(backup, null, 2);
   }
@@ -205,6 +257,10 @@ export class AppStorage {
       if (data.debtTransactions) this.saveDebtTransactions(data.debtTransactions);
       if (data.cashFlow) this.saveCashFlow(data.cashFlow);
       if (data.settings) this.saveSettings(data.settings);
+      if (data.combos) this.saveCombos(data.combos);
+      if (data.dailyGoals) this.saveDailyGoals(data.dailyGoals);
+      if (data.currentShift !== undefined) this.saveCurrentShift(data.currentShift);
+      if (data.shiftHistory) this.saveShiftHistory(data.shiftHistory);
       return true;
     } catch (err) {
       console.error('Failed to import backup:', err);
@@ -220,5 +276,9 @@ export class AppStorage {
     this.saveCashFlow(INITIAL_CASH_FLOW);
     this.saveSettings(INITIAL_SETTINGS);
     this.saveSales([]);
+    this.saveCombos(INITIAL_COMBOS.map((c) => ({ ...c, active: true })));
+    this.saveDailyGoals(DEFAULT_DAILY_GOALS);
+    this.saveCurrentShift(null);
+    this.saveShiftHistory([]);
   }
 }

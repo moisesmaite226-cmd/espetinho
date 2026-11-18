@@ -67,6 +67,7 @@ export interface ComboOffer {
   description: string;
   badge: string;
   promoPrice: number;
+  active?: boolean;
   items: {
     productId: string;
     variantId?: string;
@@ -166,4 +167,22 @@ export interface AppSettings {
   pixKeyType: 'cpf' | 'celular' | 'email' | 'aleatoria';
   ownerName: string;
   defaultCreditLimit: number;
+}
+
+export interface DailyGoalSettings {
+  dailyFixedCost: number;
+  dailyProfitTarget: number;
+}
+
+export interface RegisterShift {
+  id: string;
+  openedAt: string;
+  closedAt?: string;
+  openingCash: number;
+  countedCash?: number;
+  expectedCashAtClose?: number;
+  totalSalesRevenue?: number;
+  netProfitAtClose?: number;
+  notes?: string;
+  status: 'open' | 'closed';
 }

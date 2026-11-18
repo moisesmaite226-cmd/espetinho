@@ -25,7 +25,9 @@ import {
   Image as ImageIcon,
   Eye,
   EyeOff,
-  X
+  X,
+  ShoppingCart,
+  Sparkles,
 } from 'lucide-react';
 
 interface StockViewProps {
@@ -35,6 +37,8 @@ interface StockViewProps {
   onQuickReplenish: (productId: string, quantityToAdd: number) => void;
   onToggleProductActive?: (productId: string) => void;
   onDeleteProduct?: (productId: string) => void;
+  onOpenCombosManager?: () => void;
+  onOpenSmartRestock?: () => void;
 }
 
 export const StockView: React.FC<StockViewProps> = ({
@@ -44,9 +48,11 @@ export const StockView: React.FC<StockViewProps> = ({
   onQuickReplenish,
   onToggleProductActive,
   onDeleteProduct,
+  onOpenCombosManager,
+  onOpenSmartRestock,
 }) => {
   const [selectedCat, setSelectedCat] = useState<string>('todos');
-  const [visibilityFilter, setVisibilityFilter] = useState<'todos' | 'ativos' | 'ocultos'>('todos');
+  const [visibilityFilter, setVisibilityFilter] = useState<'todos' | 'ativos' | 'esgotados' | 'ocultos'>('todos');
   const [sortMode, setSortMode] = useState<ProductSortMode>('mais_vendidos');
   const [search, setSearch] = useState('');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -68,7 +74,8 @@ export const StockView: React.FC<StockViewProps> = ({
   const [active, setActive] = useState(true);
   const [formError, setFormError] = useState('');
 
-  const lowStockProducts = products.filter((p) => p.active && p.stock <= p.minStock);
+  const outOfStockProducts = products.filter((p) => p.active && p.stock <= 0);
+  const lowStockProducts = products.filter((p) => p.active && p.stock > 0 && p.stock <= p.minStock);
   const hiddenCount = products.filter((p) => !p.active).length;
 
   const salesCountMap = useMemo(() => buildSalesCountMap(sales), [sales]);
@@ -81,7 +88,9 @@ export const StockView: React.FC<StockViewProps> = ({
         visibilityFilter === 'todos'
           ? true
           : visibilityFilter === 'ativos'
-          ? p.active
+          ? p.active && p.stock > 0
+          : visibilityFilter === 'esgotados'
+          ? p.active && p.stock <= 0
           : !p.active;
       return matchesCat && matchesSearch && matchesVisibility;
     });
@@ -191,6 +200,52 @@ export const StockView: React.FC<StockViewProps> = ({
   return (
     <div className="space-y-6">
       
+      {/* Alert banner if items sold out and auto-disappeared from PDV */}
+      {outOfStockProducts.length > 0 && (
+        <div className="bg-rose-950/35 border border-rose-800/80 rounded-xl p-4 space-y-2.5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            <div className="flex-1 text-xs">
+              <span className="font-bold text-rose-300 block mb-0.5">
+                {outOfStockProducts.length}{' '}
+                {outOfStockProducts.length === 1
+                  ? 'item esgotado saiu automaticamente do cardápio'
+                  : 'itens esgotados saíram automaticamente do cardápio'}
+              </span>
+              <p className="text-rose-200/80">
+                Assim que você repor o estoque abaixo (+1, +6 ou +12), o item volta automaticamente para o PDV.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 pl-8">
+            {outOfStockProducts.slice(0, 6).map((p) => (
+              <div
+                key={p.id}
+                className="flex items-center gap-1.5 bg-neutral-950/80 border border-rose-500/30 rounded-lg px-2.5 py-1 text-xs"
+              >
+                <span className="font-semibold text-white">{p.name}</span>
+                <button
+                  type="button"
+                  onClick={() => onQuickReplenish(p.id, 6)}
+                  className="px-1.5 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-mono text-[11px] font-bold"
+                  title="Repor 6 e voltar ao cardápio"
+                >
+                  +6
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onQuickReplenish(p.id, 12)}
+                  className="px-1.5 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-mono text-[11px] font-bold"
+                  title="Repor 12 e voltar ao cardápio"
+                >
+                  +12
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Alert banner if items are low on stock */}
       {lowStockProducts.length > 0 && (
         <div className="bg-amber-950/40 border border-amber-800/80 rounded-xl p-4 flex items-start gap-3">
@@ -263,9 +318,9 @@ export const StockView: React.FC<StockViewProps> = ({
             </button>
           </div>
 
-          {/* Search & Add */}
-          <div className="flex items-center gap-2">
-            <div className="relative min-w-[180px]">
+          {/* Search, Smart Tools & Add */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[170px] flex-1 sm:flex-initial">
               <Search className="w-4 h-4 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
@@ -275,6 +330,28 @@ export const StockView: React.FC<StockViewProps> = ({
                 className="w-full pl-9 pr-3 py-1.5 text-xs bg-neutral-950 border border-neutral-700 rounded-lg text-white placeholder-neutral-500"
               />
             </div>
+
+            {onOpenSmartRestock && (
+              <button
+                type="button"
+                onClick={onOpenSmartRestock}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 rounded-lg whitespace-nowrap"
+              >
+                <ShoppingCart className="w-3.5 h-3.5" />
+                <span>Lista de Compras</span>
+              </button>
+            )}
+
+            {onOpenCombosManager && (
+              <button
+                type="button"
+                onClick={onOpenCombosManager}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-neutral-800 hover:bg-neutral-700 text-amber-300 border border-neutral-700 rounded-lg whitespace-nowrap"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Combos</span>
+              </button>
+            )}
 
             <button
               onClick={handleOpenNew}
@@ -313,12 +390,21 @@ export const StockView: React.FC<StockViewProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setVisibilityFilter('ocultos')}
+                onClick={() => setVisibilityFilter('esgotados')}
                 className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors whitespace-nowrap ${
-                  visibilityFilter === 'ocultos' ? 'bg-rose-500/20 text-rose-300' : 'text-neutral-400 hover:text-white'
+                  visibilityFilter === 'esgotados' ? 'bg-rose-500/25 text-rose-200' : 'text-neutral-400 hover:text-white'
                 }`}
               >
-                Fora do Cardápio{hiddenCount > 0 ? ` (${hiddenCount})` : ''}
+                Esgotados{outOfStockProducts.length > 0 ? ` (${outOfStockProducts.length})` : ''}
+              </button>
+              <button
+                type="button"
+                onClick={() => setVisibilityFilter('ocultos')}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                  visibilityFilter === 'ocultos' ? 'bg-neutral-800 text-amber-300' : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                Pausados{hiddenCount > 0 ? ` (${hiddenCount})` : ''}
               </button>
             </div>
           </div>
@@ -405,11 +491,13 @@ export const StockView: React.FC<StockViewProps> = ({
 
                         <div>
                           <div className="font-bold text-white text-xs">{p.name}</div>
-                          <div className="text-[10px] text-neutral-500 uppercase flex items-center gap-1.5">
+                          <div className="text-[10px] text-neutral-500 uppercase flex flex-wrap items-center gap-1.5">
                             <span>{p.category} · {p.unit}</span>
-                            {!p.active && (
-                              <span className="text-rose-400 font-bold normal-case">· Fora do cardápio</span>
-                            )}
+                            {!p.active ? (
+                              <span className="text-amber-400 font-bold normal-case">· Pausado manualmente</span>
+                            ) : p.stock <= 0 ? (
+                              <span className="text-rose-400 font-bold normal-case">· Oculto auto (0 un)</span>
+                            ) : null}
                           </div>
                         </div>
                       </div>
@@ -474,7 +562,15 @@ export const StockView: React.FC<StockViewProps> = ({
 
                     {/* Quick Replenishment Buttons */}
                     <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => onQuickReplenish(p.id, 1)}
+                          className="px-2 py-1 bg-neutral-800 hover:bg-emerald-500/20 hover:text-emerald-300 text-neutral-200 rounded font-mono text-[11px] font-semibold transition-colors"
+                          title="Adicionar 1 unidade"
+                        >
+                          +1
+                        </button>
                         <button
                           type="button"
                           onClick={() => onQuickReplenish(p.id, 6)}

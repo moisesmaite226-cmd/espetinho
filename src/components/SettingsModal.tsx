@@ -1,18 +1,22 @@
 import React, { useState, useRef } from 'react';
-import { AppSettings } from '../types';
+import { AppSettings, DailyGoalSettings } from '../types';
 import { AppStorage } from '../services/storage';
-import { Settings, Save, Download, Upload, RotateCcw, X, Check, ShieldCheck } from 'lucide-react';
+import { Settings, Save, Download, Upload, RotateCcw, X, Check, ShieldCheck, Target } from 'lucide-react';
 
 interface SettingsModalProps {
   settings: AppSettings;
+  dailyGoals?: DailyGoalSettings;
   onSaveSettings: (settings: AppSettings) => void;
+  onSaveDailyGoals?: (goals: DailyGoalSettings) => void;
   onReloadAllData: () => void;
   onClose: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
+  dailyGoals,
   onSaveSettings,
+  onSaveDailyGoals,
   onReloadAllData,
   onClose,
 }) => {
@@ -23,7 +27,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [defaultCreditLimit, setDefaultCreditLimit] = useState(
     settings.defaultCreditLimit?.toString() || '120'
   );
+  const [dailyFixedCost, setDailyFixedCost] = useState(
+    (dailyGoals?.dailyFixedCost ?? 80).toString()
+  );
+  const [dailyProfitTarget, setDailyProfitTarget] = useState(
+    (dailyGoals?.dailyProfitTarget ?? 250).toString()
+  );
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [backupMessage, setBackupMessage] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -38,11 +50,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       defaultCreditLimit: parseFloat(defaultCreditLimit) || 100,
     };
     onSaveSettings(updated);
+    if (onSaveDailyGoals) {
+      onSaveDailyGoals({
+        dailyFixedCost: Math.max(0, parseFloat(dailyFixedCost.replace(',', '.')) || 0),
+        dailyProfitTarget: Math.max(10, parseFloat(dailyProfitTarget.replace(',', '.')) || 250),
+      });
+    }
     setSavedSuccess(true);
     setTimeout(() => {
       setSavedSuccess(false);
       onClose();
-    }, 1200);
+    }, 1000);
   };
 
   const handleExportBackup = () => {
@@ -66,11 +84,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       if (content) {
         const ok = AppStorage.importFullBackup(content);
         if (ok) {
-          alert('Backup restaurado com sucesso!');
+          setBackupMessage({ type: 'ok', text: 'Backup restaurado com sucesso!' });
           onReloadAllData();
-          onClose();
+          setTimeout(() => onClose(), 900);
         } else {
-          alert('Arquivo de backup inválido.');
+          setBackupMessage({ type: 'err', text: 'Arquivo de backup inválido.' });
         }
       }
     };
@@ -78,12 +96,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleResetDemo = () => {
-    if (confirm('Tem certeza que deseja restaurar os dados de exemplo? As alterações atuais serão substituídas.')) {
-      AppStorage.resetToDemo();
-      onReloadAllData();
-      alert('Dados de exemplo restaurados com sucesso!');
-      onClose();
-    }
+    AppStorage.resetToDemo();
+    onReloadAllData();
+    setConfirmReset(false);
+    setBackupMessage({ type: 'ok', text: 'Dados de exemplo restaurados com sucesso!' });
+    setTimeout(() => onClose(), 900);
   };
 
   return (
@@ -186,6 +203,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             />
           </div>
 
+          {onSaveDailyGoals && (
+            <div className="bg-neutral-950 p-3.5 rounded-xl border border-neutral-800 space-y-2.5">
+              <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                <Target className="w-4 h-4" />
+                Termômetro Diário (Custos Fixos & Meta de Lucro)
+              </span>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] text-neutral-400 block mb-1">
+                    Custo Fixo / Dia (R$)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={dailyFixedCost}
+                    onChange={(e) => setDailyFixedCost(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-neutral-900 border border-neutral-700 rounded-lg text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-neutral-400 block mb-1">
+                    Meta de Lucro / Noite (R$)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={dailyProfitTarget}
+                    onChange={(e) => setDailyProfitTarget(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-neutral-900 border border-neutral-700 rounded-lg text-white font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-2 border-t border-neutral-800">
             <button
               type="button"
@@ -239,15 +291,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               className="hidden"
             />
 
-            <button
-              type="button"
-              onClick={handleResetDemo}
-              className="flex items-center gap-1.5 px-3 py-2 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 text-xs font-semibold rounded-lg transition-colors border border-rose-900/50 ml-auto"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Resetar Dados de Demonstração</span>
-            </button>
+            {!confirmReset ? (
+              <button
+                type="button"
+                onClick={() => setConfirmReset(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 text-xs font-semibold rounded-lg transition-colors border border-rose-900/50 ml-auto"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Resetar Dados de Demonstração</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-1.5 ml-auto">
+                <span className="text-[11px] text-rose-300 font-semibold">Confirmar reset?</span>
+                <button
+                  type="button"
+                  onClick={handleResetDemo}
+                  className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-lg"
+                >
+                  Sim, Resetar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmReset(false)}
+                  className="px-2 py-1.5 bg-neutral-800 text-neutral-300 text-xs rounded-lg"
+                >
+                  Cancelar
+                </button>
+              </div>
+            )}
           </div>
+
+          {backupMessage && (
+            <div
+              className={`p-2.5 rounded-lg text-xs border ${
+                backupMessage.type === 'ok'
+                  ? 'bg-emerald-950/40 border-emerald-700/60 text-emerald-300'
+                  : 'bg-rose-950/40 border-rose-700/60 text-rose-300'
+              }`}
+            >
+              {backupMessage.text}
+            </div>
+          )}
         </div>
 
       </div>
